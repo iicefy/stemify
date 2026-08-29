@@ -1,4 +1,4 @@
-# Guitar Practice App — Requirements Document
+# Stemify — Requirements Document
 
 ## 1. Overview
 

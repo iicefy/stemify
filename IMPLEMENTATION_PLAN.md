@@ -1,4 +1,4 @@
-# Guitar Practice App — Technical Implementation Plan
+# Stemify — Technical Implementation Plan
 
 Companion to [REQUIREMENTS.md](REQUIREMENTS.md). This defines the concrete
 architecture, data model, API surface, and build phases.

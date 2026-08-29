@@ -12,7 +12,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Guitar Practice</h1>
+        <h1>Stemify</h1>
       </header>
       <Library onSelectSong={setSelectedSongId} />
     </div>

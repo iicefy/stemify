@@ -1,4 +1,4 @@
-# Guitar Practice App
+# Stemify
 
 See [REQUIREMENTS.md](REQUIREMENTS.md) and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 for what this is and how it's built.
