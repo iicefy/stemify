@@ -26,3 +26,4 @@ The separation worker needs its own Python environment set up once —
 see [worker/README.md](worker/README.md).
 
 Uploaded files and generated stems are stored in `data/` (gitignored).
+# stemify
