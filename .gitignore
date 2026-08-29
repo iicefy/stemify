@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/uploads/*
+data/stems/*
+data/db.sqlite
+!data/uploads/.gitkeep
+!data/stems/.gitkeep
+.DS_Store
+worker/.venv/
+worker/__pycache__/
+*.pyc
+.env

@@ -1,0 +1,874 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+
+  --track-header-width: 190px;
+  --daw-topbar-height: 58px;
+
+  /* Minimal, mostly-neutral palette. One accent (primary blue) carries
+     every "active/selected/primary" state; red is reserved for mute only.
+     Track identity colors live separately in trackColors.ts, kept muted
+     so they read as one cohesive set rather than competing with the UI
+     chrome. */
+  --bg: #0b0b0c;
+  --surface: #151517;
+  --surface-2: #1c1c1f;
+  --border: #26262a;
+  --text: #f0f0f1;
+  --text-dim: #86868c;
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-contrast: #ffffff;
+  --danger: #e2554f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+/* --- Library --- */
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.app-header {
+  margin-bottom: 1.75rem;
+}
+
+.app-header h1 {
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  text-align: center;
+  padding: 2.25rem 1.5rem;
+  margin-bottom: 1.75rem;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone-active {
+  border-color: var(--text-dim);
+  background: var(--surface-2);
+}
+
+.dropzone-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dropzone-title {
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dropzone-sub {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+
+.song-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.library-count {
+  margin: 0 0 0.6rem 0.1rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.song-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.song-row-clickable {
+  cursor: pointer;
+}
+
+.song-row-clickable:hover {
+  border-color: #38383d;
+  background: var(--surface-2);
+}
+
+.song-avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.song-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.song-meta {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.status-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-spinner {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: status-pulse 1s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.status-processing {
+  color: var(--accent);
+}
+
+.status-processing .status-dot {
+  background: var(--accent);
+}
+
+.status-ready {
+  color: var(--text-dim);
+}
+
+.status-ready .status-dot {
+  background: #5fb377;
+}
+
+.status-failed {
+  color: var(--danger);
+}
+
+.status-failed .status-dot {
+  background: var(--danger);
+}
+
+.song-title {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-delete {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.song-delete:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* --- DAW player (fullscreen, minimal) --- */
+
+.daw-fullscreen {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.daw-topbar {
+  flex-shrink: 0;
+  height: var(--daw-topbar-height);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 0.75rem;
+  padding: 0 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  /* Own scroll container for its controls: if they ever overflow a narrow
+     window, this scrolls internally instead of the browser auto-scrolling
+     `.daw-fullscreen` (which would drag the whole track area off-screen
+     with no way back, since that container has no visible scrollbar). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.daw-topbar::-webkit-scrollbar {
+  display: none;
+}
+
+.daw-topbar-zone {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  /* Defense in depth: if a zone's content ever doesn't fit its grid
+     track, this makes IT scroll internally rather than visually
+     spilling into a neighboring zone - `justify-content: flex-end`
+     pushes overflow backward past its own box with nothing to stop it
+     otherwise, since the grid track itself is a fixed size and the
+     outer `.daw-topbar` only catches overflow of the bar as a whole. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.daw-topbar-zone::-webkit-scrollbar {
+  display: none;
+}
+
+.daw-topbar-left {
+  justify-content: flex-start;
+}
+
+.daw-topbar-center {
+  justify-content: center;
+}
+
+.daw-topbar-right {
+  justify-content: flex-end;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.daw-back {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.daw-back:hover {
+  border-color: #38383d;
+  background: var(--surface-2);
+}
+
+.daw-song-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daw-message {
+  padding: 1rem;
+  color: var(--text-dim);
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+
+.transport-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.transport-btn:hover {
+  border-color: #38383d;
+  background: var(--surface-2);
+}
+
+/* The primary action still stands out via fill color, but matches every
+   other topbar button's size instead of being enlarged. */
+.transport-play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.transport-play:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.transport-time {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  min-width: 92px;
+}
+
+.daw-grid {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+}
+
+.daw-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* A loop region or playhead partially outside the current zoom/pan
+     window would otherwise render past this box's edges instead of
+     just being cut off where the visible timeline ends. */
+  overflow: hidden;
+}
+
+.daw-tracks {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.track-row {
+  display: flex;
+  flex: 1;
+  min-height: 60px;
+  max-height: 104px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.track-row:last-child {
+  border-bottom: none;
+}
+
+.track-row:hover {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.track-row-dimmed .track-waveform {
+  opacity: 0.55;
+}
+
+.track-header {
+  width: var(--track-header-width);
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.track-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.track-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.track-name {
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.track-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.track-buttons {
+  display: flex;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.track-btn {
+  width: 24px;
+  height: 22px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.track-btn:hover {
+  border-color: #38383d;
+  color: var(--text);
+}
+
+.track-btn-mute.active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1a1210;
+}
+
+/* Silenced because another track is soloed, not because this one was
+   explicitly muted - same idea, visually distinguished (outline vs
+   solid) so the user can tell the two states apart. */
+.track-btn-mute.auto-muted {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.track-btn-solo.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.track-volume {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--text-dim);
+}
+
+.track-volume-value {
+  flex-shrink: 0;
+  width: 2.4ch;
+  text-align: right;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.hover-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.hover-tooltip {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 4;
+  white-space: nowrap;
+}
+
+.track-waveform {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.track-waveform canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.timeline-ruler {
+  flex: 0 0 26px;
+  min-height: 26px;
+  background: var(--surface);
+}
+
+.ruler-track {
+  cursor: crosshair;
+  user-select: none;
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 4px;
+}
+
+.ruler-tick span {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-family: ui-monospace, "SF Mono", monospace;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* --- Loop region --- */
+
+.loop-drag-preview {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.2);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  pointer-events: none;
+}
+
+.ruler-loop-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.22);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ruler-loop-clear {
+  pointer-events: auto;
+  width: 15px;
+  height: 15px;
+  margin-right: 2px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ruler-loop-clear:hover {
+  background: var(--danger);
+  color: #1a1210;
+}
+
+.loop-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.05);
+  border-left: 1px solid rgba(59, 130, 246, 0.35);
+  border-right: 1px solid rgba(59, 130, 246, 0.35);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.loop-overlay-disabled {
+  background: rgba(255, 255, 255, 0.015);
+  border-left-color: var(--border);
+  border-right-color: var(--border);
+}
+
+.loop-toggle {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 0 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.loop-toggle:hover:not(:disabled) {
+  border-color: #38383d;
+  color: var(--text);
+}
+
+.loop-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.loop-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* --- Speed control (top bar) --- */
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 0.2rem;
+}
+
+.speed-preset {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  border-radius: 4px;
+  padding: 0.28rem 0.35rem;
+  font-size: 0.68rem;
+  font-family: ui-monospace, "SF Mono", monospace;
+  cursor: pointer;
+}
+
+.speed-preset:hover {
+  color: var(--text);
+}
+
+.speed-preset.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 700;
+}
+
+/* --- Master volume (top bar) --- */
+
+.master-volume {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 0.6rem;
+  color: var(--text-dim);
+}
+
+.master-volume-slider {
+  width: 90px;
+  accent-color: var(--text-dim);
+  cursor: pointer;
+}
+
+.master-volume-value {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  min-width: 2ch;
+  text-align: right;
+}
+
+/* --- Zoom (top bar + pan scrollbar) --- */
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.zoom-btn {
+  width: 24px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.zoom-label {
+  min-width: 2.6ch;
+  text-align: center;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  padding: 0 0.2rem;
+}
+
+.zoom-scrollbar-row {
+  flex: 0 0 16px;
+  min-height: 16px;
+  background: var(--surface);
+}
+
+.zoom-scrollbar-track {
+  position: relative;
+  background: var(--bg);
+  cursor: default;
+}
+
+.zoom-scrollbar-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+.zoom-scrollbar-thumb:hover {
+  border-color: var(--text-dim);
+}
+
+.zoom-scrollbar-thumb:active {
+  cursor: grabbing;
+  border-color: var(--accent);
+}
