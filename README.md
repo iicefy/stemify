@@ -15,15 +15,18 @@ playback speed 0.5x-1.5x).
 ## Local dev
 
 ```bash
-npm install
-npm run dev
+make install   # npm install + set up the Python separation worker (.venv)
+make run       # start the API and web app together
 ```
 
 This starts the API on `http://localhost:3001` and the web app (Vite) on
 `http://localhost:5173`, proxying `/api` to the API.
 
-The separation worker needs its own Python environment set up once —
-see [worker/README.md](worker/README.md).
+`make install` sets up the separation worker's Python virtualenv
+automatically; see [worker/README.md](worker/README.md) for details
+(e.g. reinstalling `torch` for non-Apple-Silicon hardware).
+
+Without `make`, the equivalent is `npm install` at the root plus the
+worker venv steps in [worker/README.md](worker/README.md), then `npm run dev`.
 
 Uploaded files and generated stems are stored in `data/` (gitignored).
-# stemify
