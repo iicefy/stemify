@@ -16,6 +16,14 @@ interface Manifest {
   error?: string;
 }
 
+const markFailed = db.prepare(
+  "UPDATE songs SET status = 'failed', error_message = ? WHERE id = ?"
+);
+const markReady = db.prepare("UPDATE songs SET status = 'ready' WHERE id = ?");
+const insertStem = db.prepare(
+  "INSERT INTO stems (id, song_id, name, file_path) VALUES (?, ?, ?, ?)"
+);
+
 const queue: Job[] = [];
 let running = false;
 
@@ -52,9 +60,7 @@ function runSeparation(job: Job): Promise<void> {
     child.on("error", (err) => {
       // e.g. worker/.venv doesn't exist yet - surface a clear message
       // instead of leaving the song stuck at "processing" forever.
-      db.prepare(
-        "UPDATE songs SET status = 'failed', error_message = ? WHERE id = ?"
-      ).run(`Failed to start separation worker: ${err.message}`, songId);
+      markFailed.run(`Failed to start separation worker: ${err.message}`, songId);
       resolve();
     });
 
@@ -78,21 +84,15 @@ function finalize(songId: string): void {
 
   if (!manifest || manifest.status !== "done" || !manifest.stems) {
     const message = manifest?.error ?? "Separation failed (no manifest produced)";
-    db.prepare(
-      "UPDATE songs SET status = 'failed', error_message = ? WHERE id = ?"
-    ).run(message, songId);
+    markFailed.run(message, songId);
     return;
   }
-
-  const insertStem = db.prepare(
-    "INSERT INTO stems (id, song_id, name, file_path) VALUES (?, ?, ?, ?)"
-  );
 
   const insertAll = db.transaction((stems: Record<string, string>) => {
     for (const [name, filename] of Object.entries(stems)) {
       insertStem.run(randomUUID(), songId, name, path.join(songStemsDir, filename));
     }
-    db.prepare("UPDATE songs SET status = 'ready' WHERE id = ?").run(songId);
+    markReady.run(songId);
   });
 
   insertAll(manifest.stems);

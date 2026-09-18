@@ -26,6 +26,9 @@ export class PlaybackEngine {
   private sources = new Map<string, LoopingBufferSource>();
   private loop: { start: number; end: number } | null = null;
 
+  // The first stem doubles as the master clock (all stems advance together).
+  private reference: { shifter: PitchShifter; source: LoopingBufferSource } | null = null;
+
   private playing = false;
   private duration = 0;
   private tempo = 1;
@@ -62,6 +65,7 @@ export class PlaybackEngine {
         this.applyLoopTo(source);
 
         this.shifters.set(stem.id, shifter);
+        if (!this.reference) this.reference = { shifter, source };
       })
     );
 
@@ -127,12 +131,11 @@ export class PlaybackEngine {
   }
 
   getCurrentTime(): number {
-    const entry = this.shifters.entries().next().value;
-    if (!entry) return 0;
-    const [stemId, shifter] = entry;
-    const source = this.sources.get(stemId);
-    const position = source ? source.mapPosition(shifter.sourcePosition) : shifter.sourcePosition;
-    return position / this.ctx.sampleRate;
+    // Called every animation frame - reads the cached reference stem
+    // directly rather than walking the maps.
+    const ref = this.reference;
+    if (!ref) return 0;
+    return ref.source.mapPosition(ref.shifter.sourcePosition) / this.ctx.sampleRate;
   }
 
   isPlaying(): boolean {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSong, type SongDetail } from "../api";
 import { usePlaybackEngine } from "../hooks/usePlaybackEngine";
 import { trackColor } from "../trackColors";
@@ -10,7 +10,7 @@ import { Transport } from "./Transport";
 import { MasterVolume } from "./MasterVolume";
 import { SpeedControl } from "./SpeedControl";
 import { LoopToggle } from "./LoopToggle";
-import { formatTime } from "../formatTime";
+import { TimelineOverlay, type TimelineOverlayHandle } from "./TimelineOverlay";
 
 // Trackpad two-finger-scroll pan feels frantic at a literal 1:1 pixel
 // mapping - this tones it down to a more deliberate speed.
@@ -19,7 +19,8 @@ const PAN_SENSITIVITY = 0.12;
 export function Player({ songId, onBack }: { songId: string; onBack: () => void }) {
   const [song, setSong] = useState<SongDetail | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [hoverFraction, setHoverFraction] = useState<number | null>(null);
+  const overlayRef = useRef<TimelineOverlayHandle>(null);
+  const handleHover = useCallback((fraction: number | null) => overlayRef.current?.setHover(fraction), []);
   // zoomIndex and viewStart change together (changing zoom recomputes the
   // pan offset to keep the view centered), so they're one piece of state
   // updated functionally - two separate useState calls would let rapid
@@ -113,15 +114,31 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
     const el = dawMainRef.current;
     if (!el) return;
 
+    // Trackpads fire wheel events far faster than the screen refreshes;
+    // accumulate them and apply once per frame so a gesture costs one
+    // render + one waveform redraw per frame instead of one per event.
+    let pendingZoom = 0;
+    let pendingPan = 0;
+    let anchorFraction = 0.5;
+    let frame = 0;
+
+    function flush() {
+      frame = 0;
+      if (pendingZoom !== 0) stepZoom(pendingZoom, anchorFraction);
+      if (pendingPan !== 0) panBy(pendingPan);
+      pendingZoom = 0;
+      pendingPan = 0;
+    }
+
     function handleWheel(e: WheelEvent) {
       const rulerRect = el!.querySelector(".ruler-track")?.getBoundingClientRect();
 
       if (e.ctrlKey) {
         e.preventDefault();
-        const anchorFraction = rulerRect
+        anchorFraction = rulerRect
           ? Math.min(1, Math.max(0, (e.clientX - rulerRect.left) / rulerRect.width))
           : 0.5;
-        stepZoom(e.deltaY < 0 ? 1 : -1, anchorFraction);
+        pendingZoom += e.deltaY < 0 ? 1 : -1;
       } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && e.deltaX !== 0) {
         e.preventDefault();
         const width = rulerRect?.width || 1;
@@ -131,12 +148,18 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         // A raw 1:1 mapping panned across the entire visible window in
         // just a couple centimeters of trackpad travel - this scales it
         // down to something more controllable.
-        panBy((e.deltaX / pxPerSecond) * PAN_SENSITIVITY);
+        pendingPan += (e.deltaX / pxPerSecond) * PAN_SENSITIVITY;
+      } else {
+        return;
       }
+      if (!frame) frame = requestAnimationFrame(flush);
     }
 
     el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      if (frame) cancelAnimationFrame(frame);
+    };
     // `.daw-main` only exists once engine.ready flips true (it's behind a
     // conditional render), so this must re-run then - an empty dep array
     // would attach to a still-null ref forever, since this effect's first
@@ -148,19 +171,29 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
   // window forward (with a little lead-in room) as soon as it would
   // otherwise run off the right edge, rather than leaving the user
   // watching a playhead disappear off-screen.
+  // Only while actually playing - otherwise this fights the user whenever
+  // they zoom or pan to look at a section away from the playhead. Runs off
+  // the time subscription (no re-render per frame); it only touches React
+  // state on the rare frame the playhead actually leaves the window.
+  const { subscribeTime, isPlaying } = engine;
   useEffect(() => {
-    // Only while actually playing - otherwise this fights the user
-    // whenever they zoom or pan to look at a section away from wherever
-    // the playhead happens to be sitting (e.g. zooming into the middle of
-    // a stopped track), snapping the view back before they can look at it.
-    if (!engine.isPlaying || zoom === 1 || engine.duration <= 0) return;
+    if (!isPlaying || zoom === 1 || engine.duration <= 0) return;
     const viewEnd = viewStart + viewDuration;
-    if (engine.currentTime < viewStart || engine.currentTime > viewEnd) {
-      const maxStart = Math.max(0, engine.duration - viewDuration);
-      const lead = viewDuration * 0.1;
-      setView((prev) => ({ ...prev, viewStart: Math.min(maxStart, Math.max(0, engine.currentTime - lead)) }));
-    }
-  }, [engine.isPlaying, engine.currentTime, zoom, viewDuration, engine.duration, viewStart]);
+    const maxStart = Math.max(0, engine.duration - viewDuration);
+    return subscribeTime((time) => {
+      if (time < viewStart || time > viewEnd) {
+        const lead = viewDuration * 0.1;
+        setView((prev) => ({ ...prev, viewStart: Math.min(maxStart, Math.max(0, time - lead)) }));
+      }
+    });
+  }, [isPlaying, zoom, viewDuration, viewStart, engine.duration, subscribeTime]);
+
+  // The shortcut handler is attached once and reads the latest engine/stems
+  // through refs, instead of being torn down and re-attached on every render.
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
+  const stemsRef = useRef(stems);
+  stemsRef.current = stems;
 
   useEffect(() => {
     function isTypingTarget(target: EventTarget | null): boolean {
@@ -178,6 +211,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      const engine = engineRef.current;
       // Checking the focused element (not e.target === document.body, the
       // previous check) so shortcuts keep working after clicking any
       // button - a button keeps focus after being clicked, which isn't
@@ -215,7 +249,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         e.preventDefault();
         const step = e.shiftKey ? 15 : 5;
         const delta = e.key === "ArrowLeft" ? -step : step;
-        engine.seek(Math.min(engine.duration, Math.max(0, engine.currentTime + delta)));
+        engine.seek(Math.min(engine.duration, Math.max(0, engine.getCurrentTime() + delta)));
         return;
       }
 
@@ -237,7 +271,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
       // but its *code* stays "Digit1" either way.
       const digitMatch = /^Digit([1-9])$/.exec(e.code);
       if (digitMatch) {
-        const stem = stems[Number(digitMatch[1]) - 1];
+        const stem = stemsRef.current[Number(digitMatch[1]) - 1];
         if (stem) {
           e.preventDefault();
           if (e.shiftKey) engine.toggleSolo(stem.id);
@@ -248,12 +282,14 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, stems]);
+  }, [stepZoom]);
 
-  const anySoloed = [...engine.trackStates.values()].some((t) => t.solo);
-  const playheadFraction = viewDuration > 0 ? (engine.currentTime - viewStart) / viewDuration : 0;
-  const showPlayhead = playheadFraction >= 0 && playheadFraction <= 1;
+  const anySoloed = useMemo(
+    () => [...engine.trackStates.values()].some((t) => t.solo),
+    [engine.trackStates]
+  );
+  const zoomIn = useCallback(() => stepZoom(1), [stepZoom]);
+  const zoomOut = useCallback(() => stepZoom(-1), [stepZoom]);
 
   return (
     <div className="daw-fullscreen">
@@ -268,8 +304,8 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         <div className="daw-topbar-zone daw-topbar-center">
           <Transport
             isPlaying={engine.isPlaying}
-            currentTime={engine.currentTime}
             duration={engine.duration}
+            subscribeTime={engine.subscribeTime}
             onTogglePlay={engine.togglePlay}
             onStop={engine.stop}
           />
@@ -279,8 +315,8 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
           <SpeedControl rate={engine.playbackRate} onChange={engine.setPlaybackRate} />
           <ZoomControl
             zoomIndex={zoomIndex}
-            onZoomIn={() => stepZoom(1)}
-            onZoomOut={() => stepZoom(-1)}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
           />
           <LoopToggle
             enabled={engine.loopEnabled}
@@ -339,54 +375,21 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
                     onToggleSolo={engine.toggleSolo}
                     onVolumeChange={engine.setVolume}
                     onSeek={engine.seek}
-                    onHoverMove={setHoverFraction}
+                    onHoverMove={handleHover}
                     onSetLoopRegion={engine.setLoopRegion}
                   />
                 );
               })}
             </div>
 
-            {hoverFraction !== null && viewDuration > 0 && (
-              <>
-                <div
-                  className="hover-line"
-                  style={{
-                    left: `calc(var(--track-header-width) + (100% - var(--track-header-width)) * ${hoverFraction})`,
-                  }}
-                />
-                <div
-                  className="hover-tooltip"
-                  style={{
-                    left: `calc(var(--track-header-width) + (100% - var(--track-header-width)) * ${hoverFraction})`,
-                  }}
-                >
-                  {formatTime(viewStart + hoverFraction * viewDuration)}
-                </div>
-              </>
-            )}
-
-            {engine.loopRegion && viewDuration > 0 && (
-              <div
-                className={`loop-overlay ${engine.loopEnabled ? "" : "loop-overlay-disabled"}`}
-                style={{
-                  left: `calc(var(--track-header-width) + (100% - var(--track-header-width)) * ${
-                    (engine.loopRegion.start - viewStart) / viewDuration
-                  })`,
-                  width: `calc((100% - var(--track-header-width)) * ${
-                    (engine.loopRegion.end - engine.loopRegion.start) / viewDuration
-                  })`,
-                }}
-              />
-            )}
-
-            {showPlayhead && (
-              <div
-                className="playhead"
-                style={{
-                  left: `calc(var(--track-header-width) + (100% - var(--track-header-width)) * ${playheadFraction})`,
-                }}
-              />
-            )}
+            <TimelineOverlay
+              ref={overlayRef}
+              viewStart={viewStart}
+              viewDuration={viewDuration}
+              loopRegion={engine.loopRegion}
+              loopEnabled={engine.loopEnabled}
+              subscribeTime={engine.subscribeTime}
+            />
           </div>
         </div>
       )}

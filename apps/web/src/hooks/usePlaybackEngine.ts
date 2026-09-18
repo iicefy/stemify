@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlaybackEngine } from "../audio/PlaybackEngine";
 import { computePeaks } from "../audio/waveform";
 import { stemUrl, type Stem } from "../api";
@@ -16,12 +16,16 @@ export interface LoopRegion {
   end: number; // seconds
 }
 
+export type TimeListener = (time: number) => void;
+export type SubscribeTime = (listener: TimeListener) => () => void;
+
+const yieldToMain = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 export function usePlaybackEngine(songId: string, stems: Stem[]) {
   const engineRef = useRef<PlaybackEngine | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [peaksByStem, setPeaksByStem] = useState<Map<string, Float32Array>>(new Map());
   const [trackStates, setTrackStates] = useState<Map<string, TrackState>>(new Map());
@@ -31,6 +35,30 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
   const [loopEnabled, setLoopEnabled] = useState(false);
 
   const stemsKey = stems.map((s) => s.id).join(",");
+
+  // The playhead position changes every animation frame, so it deliberately
+  // lives outside React state: components that show it (playhead, time
+  // readout) subscribe and update their own DOM directly, instead of the
+  // whole player re-rendering ~60 times a second.
+  const timeRef = useRef(0);
+  const timeListeners = useRef(new Set<TimeListener>());
+  const durationRef = useRef(0);
+  durationRef.current = duration;
+
+  const emitTime = useCallback((time: number) => {
+    timeRef.current = time;
+    for (const listener of timeListeners.current) listener(time);
+  }, []);
+
+  const subscribeTime = useCallback<SubscribeTime>((listener) => {
+    timeListeners.current.add(listener);
+    listener(timeRef.current);
+    return () => {
+      timeListeners.current.delete(listener);
+    };
+  }, []);
+
+  const getCurrentTime = useCallback(() => timeRef.current, []);
 
   // Load stems into the audio engine whenever the song or its stem list
   // changes (stems arrive asynchronously after the initial song fetch, so
@@ -45,14 +73,21 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     setLoadError(null);
     setLoopRegionState(null);
     setLoopEnabled(false);
+    emitTime(0);
 
     engine
       .loadStems(stems.map((s) => ({ id: s.id, url: stemUrl(songId, s.id) })))
-      .then(({ buffers, duration }) => {
+      .then(async ({ buffers, duration }) => {
         if (cancelled) return;
 
+        // Each stem is millions of samples; yielding between them keeps the
+        // page responsive instead of freezing for the whole batch.
         const peaks = new Map<string, Float32Array>();
-        for (const [id, buffer] of buffers) peaks.set(id, computePeaks(buffer, PEAK_BUCKETS));
+        for (const [id, buffer] of buffers) {
+          peaks.set(id, computePeaks(buffer, PEAK_BUCKETS));
+          await yieldToMain();
+          if (cancelled) return;
+        }
         setPeaksByStem(peaks);
 
         const initialStates = new Map<string, TrackState>();
@@ -108,7 +143,8 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     engine.setLoop(loopEnabled && loopRegion ? loopRegion : null);
   }, [loopEnabled, loopRegion, ready]);
 
-  // Poll playhead position via rAF while playing.
+  // Poll the audio clock once per frame while playing and push it to the
+  // time subscribers (no React state involved).
   useEffect(() => {
     if (!isPlaying) return;
     let raf: number;
@@ -119,16 +155,16 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
         if (t >= duration) {
           engine.pause();
           setIsPlaying(false);
-          setCurrentTime(duration);
+          emitTime(duration);
           return;
         }
-        setCurrentTime(t);
+        emitTime(t);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, duration]);
+  }, [isPlaying, duration, emitTime]);
 
   const controls = useMemo(
     () => ({
@@ -149,14 +185,14 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
         engine.pause();
         engine.seek(0);
         setIsPlaying(false);
-        setCurrentTime(0);
+        emitTime(0);
       },
       seek: (time: number) => {
         const engine = engineRef.current;
         if (!engine) return;
-        const clamped = Math.min(Math.max(0, time), duration);
+        const clamped = Math.min(Math.max(0, time), durationRef.current);
         engine.seek(clamped);
-        setCurrentTime(clamped);
+        emitTime(clamped);
       },
       toggleMute: (stemId: string) => {
         setTrackStates((prev) => {
@@ -196,14 +232,15 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
         setLoopEnabled((prev) => !prev);
       },
     }),
-    [duration]
+    [emitTime]
   );
 
   return {
     ready,
     loadError,
     duration,
-    currentTime,
+    subscribeTime,
+    getCurrentTime,
     isPlaying,
     peaksByStem,
     trackStates,

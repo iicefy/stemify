@@ -8,6 +8,10 @@ fs.mkdirSync(STEMS_DIR, { recursive: true });
 
 export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
+// NORMAL is the recommended pairing with WAL: still crash-safe for the DB
+// file, but skips an fsync per commit.
+db.pragma("synchronous = NORMAL");
+db.pragma("busy_timeout = 5000");
 db.pragma("foreign_keys = ON");
 
 db.exec(`
@@ -26,6 +30,10 @@ db.exec(`
     name      TEXT NOT NULL,
     file_path TEXT NOT NULL
   );
+
+  -- Stems are always looked up (and cascade-deleted) by song.
+  CREATE INDEX IF NOT EXISTS idx_stems_song_id ON stems(song_id);
+  CREATE INDEX IF NOT EXISTS idx_songs_created_at ON songs(created_at DESC);
 `);
 
 export type SongStatus = "processing" | "ready" | "failed";

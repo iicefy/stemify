@@ -29,6 +29,20 @@ const upload = multer({
 
 export const songsRouter = Router();
 
+// Prepared once at load - better-sqlite3 statements are meant to be reused,
+// and re-preparing on every request re-parses the SQL each time.
+const insertSong = db.prepare(
+  `INSERT INTO songs (id, title, original_path, status, created_at)
+   VALUES (?, ?, ?, 'processing', ?)`
+);
+const listSongs = db.prepare(
+  "SELECT id, title, status, error_message, created_at FROM songs ORDER BY created_at DESC"
+);
+const getSong = db.prepare("SELECT * FROM songs WHERE id = ?");
+const listStems = db.prepare("SELECT id, name FROM stems WHERE song_id = ?");
+const deleteSong = db.prepare("DELETE FROM songs WHERE id = ?");
+const getStem = db.prepare("SELECT file_path FROM stems WHERE id = ? AND song_id = ?");
+
 songsRouter.post("/", upload.single("file"), (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
@@ -42,10 +56,7 @@ songsRouter.post("/", upload.single("file"), (req, res) => {
   const title = path.parse(originalName).name;
   const createdAt = new Date().toISOString();
 
-  db.prepare(
-    `INSERT INTO songs (id, title, original_path, status, created_at)
-     VALUES (?, ?, ?, 'processing', ?)`
-  ).run(id, title, req.file.path, createdAt);
+  insertSong.run(id, title, req.file.path, createdAt);
 
   enqueueSeparation(id, req.file.path);
 
@@ -53,43 +64,33 @@ songsRouter.post("/", upload.single("file"), (req, res) => {
 });
 
 songsRouter.get("/", (_req, res) => {
-  const songs = db
-    .prepare("SELECT * FROM songs ORDER BY created_at DESC")
-    .all() as SongRow[];
+  const songs = listSongs.all() as SongSummary[];
   res.json(songs.map(toSongDto));
 });
 
 songsRouter.get("/:id", (req, res) => {
-  const song = db
-    .prepare("SELECT * FROM songs WHERE id = ?")
-    .get(req.params.id) as SongRow | undefined;
+  const song = getSong.get(req.params.id) as SongRow | undefined;
 
   if (!song) {
     res.status(404).json({ error: "Song not found" });
     return;
   }
 
-  const stems = db
-    .prepare("SELECT * FROM stems WHERE song_id = ?")
-    .all(song.id) as StemRow[];
-
   res.json({
     ...toSongDto(song),
-    stems: stems.map((s) => ({ id: s.id, name: s.name })),
+    stems: listStems.all(song.id),
   });
 });
 
 songsRouter.delete("/:id", (req, res) => {
-  const song = db
-    .prepare("SELECT * FROM songs WHERE id = ?")
-    .get(req.params.id) as SongRow | undefined;
+  const song = getSong.get(req.params.id) as SongRow | undefined;
 
   if (!song) {
     res.status(404).json({ error: "Song not found" });
     return;
   }
 
-  db.prepare("DELETE FROM songs WHERE id = ?").run(song.id); // cascades to stems
+  deleteSong.run(song.id); // cascades to stems
 
   fs.rm(song.original_path, { force: true }, () => {});
   fs.rm(path.join(STEMS_DIR, song.id), { recursive: true, force: true }, () => {});
@@ -98,19 +99,22 @@ songsRouter.delete("/:id", (req, res) => {
 });
 
 songsRouter.get("/:id/stems/:stemId", (req, res) => {
-  const stem = db
-    .prepare("SELECT * FROM stems WHERE id = ? AND song_id = ?")
-    .get(req.params.stemId, req.params.id) as StemRow | undefined;
+  const stem = getStem.get(req.params.stemId, req.params.id) as Pick<StemRow, "file_path"> | undefined;
 
   if (!stem) {
     res.status(404).json({ error: "Stem not found" });
     return;
   }
 
-  res.sendFile(stem.file_path);
+  // Stem ids are random UUIDs and the audio never changes once written, so
+  // the browser can keep it and skip re-downloading ~40MB per stem on
+  // every reopen of the same song.
+  res.sendFile(stem.file_path, { maxAge: "1y", immutable: true });
 });
 
-function toSongDto(song: SongRow) {
+type SongSummary = Pick<SongRow, "id" | "title" | "status" | "error_message" | "created_at">;
+
+function toSongDto(song: SongSummary) {
   return {
     id: song.id,
     title: song.title,

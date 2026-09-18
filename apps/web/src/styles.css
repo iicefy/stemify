@@ -569,8 +569,28 @@ input {
   color: var(--text-dim);
 }
 
+/* Playhead / hover cursor / loop band layer, aligned to the waveform area.
+   The moving layers are as wide as the overlay so translateX(N%) is a
+   fraction of the visible window; only transform changes per frame. */
+.daw-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--track-header-width);
+  right: 0;
+  pointer-events: none;
+}
+
+.overlay-layer {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
 .hover-line {
   position: absolute;
+  left: 0;
   top: 0;
   bottom: 0;
   width: 1px;
@@ -581,6 +601,7 @@ input {
 
 .hover-tooltip {
   position: absolute;
+  left: 0;
   top: 2px;
   transform: translateX(-50%);
   background: var(--surface-2);
@@ -635,6 +656,7 @@ input {
 
 .playhead {
   position: absolute;
+  left: 0;
   top: 0;
   bottom: 0;
   width: 1.5px;
