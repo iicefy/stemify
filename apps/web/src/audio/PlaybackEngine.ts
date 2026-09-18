@@ -1,141 +1,188 @@
-import { PitchShifter } from "soundtouchjs";
-import { LoopingBufferSource } from "./LoopingBufferSource";
+import mixerWorkletUrl from "./mixer.worklet.ts?worker&url";
+import { decodeToPcm16, parseWav16, type Pcm16 } from "./wav";
+import { computePeakPyramid, type PeakPyramid } from "./waveform";
+import type { LoopFrames, MixerCommand, MixerEvent } from "./mixerProtocol";
 
-// Larger blocks trade latency for stability - with 6 simultaneous
-// ScriptProcessorNodes (one per stem) this keeps CPU load reasonable.
-const SCRIPT_BUFFER_SIZE = 4096;
+const yieldToMain = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /**
- * Sample-accurate-enough multi-track playback with pitch-preserving tempo
- * control. Each stem is decoded once into an AudioBuffer and wrapped in a
- * soundtouchjs PitchShifter (a pseudo-node backed by a ScriptProcessorNode
- * running the SoundTouch time-stretch algorithm). Unlike a plain
- * AudioBufferSourceNode, a PitchShifter isn't one-shot - connecting it
- * resumes playback from wherever its internal position is, and
- * `percentagePlayed` seeks live without needing to stop/recreate anything,
- * which is what makes tempo changes and loop-wrap jumps simple: change
- * `.tempo` or `.percentagePlayed` on every stem's shifter and they all pick
- * it up on their next audio callback.
+ * Multi-track playback with pitch-preserving tempo control.
+ *
+ * Stems stay as raw 16-bit PCM (parsed straight from the WAV, no decode, no
+ * float copy) and are handed to a single AudioWorklet that time-stretches,
+ * mixes and loops them on the audio thread. This class is just the main-thread
+ * remote control: it forwards commands and extrapolates the playhead from the
+ * worklet's periodic position reports.
  */
 export class PlaybackEngine {
-  private ctx: AudioContext;
-  private masterGain: GainNode;
-  private buffers = new Map<string, AudioBuffer>();
-  private gains = new Map<string, GainNode>();
-  private shifters = new Map<string, PitchShifter>();
-  private sources = new Map<string, LoopingBufferSource>();
+  private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private node: AudioWorkletNode | null = null;
+  private disposed = false;
+
+  private gains = new Map<string, number>();
+  private masterValue = 1;
+  private tempo = 1;
   private loop: { start: number; end: number } | null = null;
 
-  // The first stem doubles as the master clock (all stems advance together).
-  private reference: { shifter: PitchShifter; source: LoopingBufferSource } | null = null;
-
+  private sampleRate = 44100;
+  private totalFrames = 0;
   private playing = false;
-  private duration = 0;
-  private tempo = 1;
+  private epoch = 0;
+  // Last known audible position and the context time it was true at.
+  private lastFrame = 0;
+  private lastAt = 0;
 
-  constructor() {
-    this.ctx = new AudioContext();
-    this.masterGain = this.ctx.createGain();
-    this.masterGain.connect(this.ctx.destination);
-  }
+  onEnded: (() => void) | null = null;
 
   async loadStems(
     stems: { id: string; url: string }[]
-  ): Promise<{ buffers: Map<string, AudioBuffer>; duration: number }> {
-    await Promise.all(
-      stems.map(async (stem) => {
-        const res = await fetch(stem.url);
-        const arrayBuffer = await res.arrayBuffer();
-        const buffer = await this.ctx.decodeAudioData(arrayBuffer);
-        this.buffers.set(stem.id, buffer);
-
-        const gain = this.ctx.createGain();
-        gain.connect(this.masterGain);
-        this.gains.set(stem.id, gain);
-
-        const shifter = new PitchShifter(this.ctx, buffer, SCRIPT_BUFFER_SIZE);
-        shifter.tempo = this.tempo;
-        shifter.pitch = 1; // keep natural pitch regardless of tempo
-
-        // Swap in a source that wraps loops inside the audio callback
-        // instead of relying on seeks (see LoopingBufferSource).
-        const source = new LoopingBufferSource(buffer);
-        shifter._filter.sourceSound = source;
-        this.sources.set(stem.id, source);
-        this.applyLoopTo(source);
-
-        this.shifters.set(stem.id, shifter);
-        if (!this.reference) this.reference = { shifter, source };
-      })
+  ): Promise<{ peaks: Map<string, PeakPyramid>; duration: number }> {
+    const files = await Promise.all(
+      stems.map(async (stem) => ({ id: stem.id, ab: await (await fetch(stem.url)).arrayBuffer() }))
     );
+    this.assertAlive();
 
-    this.duration = Math.max(0, ...[...this.buffers.values()].map((b) => b.duration));
-    return { buffers: this.buffers, duration: this.duration };
+    const parsed = new Map<string, Pcm16 | null>(files.map((f) => [f.id, parseWav16(f.ab)]));
+    const firstParsed = [...parsed.values()].find((p): p is Pcm16 => p !== null);
+    this.sampleRate = firstParsed?.sampleRate ?? 44100;
+
+    const ctx = new AudioContext({ sampleRate: this.sampleRate, latencyHint: "playback" });
+    this.ctx = ctx;
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.value = this.masterValue;
+    this.masterGain.connect(ctx.destination);
+    // TEMP-DEBUG
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    this.masterGain.connect(an);
+    (window as unknown as Record<string, unknown>).__an = an;
+    (window as unknown as Record<string, unknown>).__engine = this;
+
+    await ctx.audioWorklet.addModule(mixerWorkletUrl);
+    this.assertAlive();
+
+    const node = new AudioWorkletNode(ctx, "stem-mixer", {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+    node.port.onmessage = (e: MessageEvent<MixerEvent>) => this.onMixerEvent(e.data);
+    node.connect(this.masterGain);
+    this.node = node;
+
+    const peaks = new Map<string, PeakPyramid>();
+    for (const file of files) {
+      // Anything that isn't 16-bit PCM at the shared rate goes through the
+      // browser decoder (which also resamples to the context rate).
+      let pcm = parsed.get(file.id) ?? null;
+      if (!pcm || pcm.sampleRate !== this.sampleRate) pcm = await decodeToPcm16(file.ab, ctx);
+      this.assertAlive();
+
+      peaks.set(file.id, computePeakPyramid(pcm.samples, this.sampleRate));
+      this.totalFrames = Math.max(this.totalFrames, pcm.frames);
+
+      // Transferring hands the buffer to the audio thread with no copy.
+      const { buffer, byteOffset, length } = pcm.samples;
+      this.send({ type: "load", id: file.id, buffer: buffer as ArrayBuffer, byteOffset, length }, [buffer as ArrayBuffer]);
+      await yieldToMain(); // keep the page responsive between stems
+      this.assertAlive();
+    }
+
+    this.send({ type: "tempo", value: this.tempo });
+    for (const [id, value] of this.gains) this.send({ type: "gain", id, value });
+    if (this.loop) this.applyLoop();
+
+    return { peaks, duration: this.totalFrames / this.sampleRate };
+  }
+
+  private assertAlive(): void {
+    if (this.disposed) throw new Error("Playback engine disposed");
+  }
+
+  private send(cmd: MixerCommand, transfer?: Transferable[]): void {
+    this.node?.port.postMessage(cmd, transfer ?? []);
+  }
+
+  private onMixerEvent(event: MixerEvent): void {
+    if (event.type === "ended") {
+      this.playing = false;
+      this.lastFrame = this.totalFrames;
+      this.onEnded?.();
+      return;
+    }
+    // Reports from before the latest seek/pause describe a stale position.
+    if (event.epoch !== this.epoch) return;
+    this.lastFrame = event.frame;
+    this.lastAt = event.at;
   }
 
   setGain(stemId: string, value: number): void {
-    const gain = this.gains.get(stemId);
-    if (gain) gain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.01);
+    this.gains.set(stemId, value);
+    this.send({ type: "gain", id: stemId, value });
   }
 
   setMasterGain(value: number): void {
-    this.masterGain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.01);
+    this.masterValue = value;
+    if (this.masterGain && this.ctx) this.masterGain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.01);
   }
 
   setTempo(rate: number): void {
     this.tempo = rate;
-    for (const shifter of this.shifters.values()) shifter.tempo = rate;
-  }
-
-  private applyLoopTo(source: LoopingBufferSource): void {
-    const sr = this.ctx.sampleRate;
-    const loop = this.loop;
-    const start = loop ? Math.round(loop.start * sr) : 0;
-    const end = loop ? Math.round(loop.end * sr) : 0;
-    source.loop = loop && end > start ? { start, end } : null;
+    this.send({ type: "tempo", value: rate });
   }
 
   setLoop(region: { start: number; end: number } | null): void {
     this.loop = region;
-    for (const [stemId, shifter] of this.shifters) {
-      const source = this.sources.get(stemId);
-      if (!source) continue;
-      const virtual = shifter._filter.sourcePosition;
-      const mapped = source.mapPosition(virtual);
-      this.applyLoopTo(source);
-      // Already wrapped under the old loop: rebase so the position keeps
-      // meaning "where we really are" once the loop changes or turns off.
-      if (virtual !== mapped) shifter._filter.sourcePosition = mapped;
-    }
+    this.applyLoop();
+  }
+
+  private applyLoop(): void {
+    const sr = this.sampleRate;
+    const loop = this.loop;
+    const frames: LoopFrames | null =
+      loop && Math.round(loop.end * sr) > Math.round(loop.start * sr)
+        ? { start: Math.round(loop.start * sr), end: Math.round(loop.end * sr) }
+        : null;
+    this.send({ type: "loop", loop: frames });
   }
 
   async play(): Promise<void> {
-    if (this.playing) return;
-    if (this.ctx.state === "suspended") await this.ctx.resume();
-    for (const [stemId, shifter] of this.shifters) {
-      const gain = this.gains.get(stemId);
-      if (gain) shifter.connect(gain);
-    }
+    const ctx = this.ctx;
+    if (!ctx || this.playing) return;
+    if (ctx.state === "suspended") await ctx.resume();
+    this.lastAt = ctx.currentTime;
     this.playing = true;
+    this.send({ type: "play" });
   }
 
   pause(): void {
     if (!this.playing) return;
-    for (const shifter of this.shifters.values()) shifter.disconnect();
+    this.lastFrame = Math.round(this.getCurrentTime() * this.sampleRate);
     this.playing = false;
+    this.send({ type: "pause", epoch: ++this.epoch });
   }
 
   seek(time: number): void {
-    const fraction = this.duration > 0 ? Math.min(1, Math.max(0, time / this.duration)) : 0;
-    for (const shifter of this.shifters.values()) shifter.percentagePlayed = fraction;
+    const frame = Math.min(this.totalFrames, Math.max(0, Math.round(time * this.sampleRate)));
+    this.lastFrame = frame;
+    this.lastAt = this.ctx?.currentTime ?? 0;
+    this.send({ type: "seek", frame, epoch: ++this.epoch });
   }
 
+  /** Called every animation frame: extrapolates from the last worklet report. */
   getCurrentTime(): number {
-    // Called every animation frame - reads the cached reference stem
-    // directly rather than walking the maps.
-    const ref = this.reference;
-    if (!ref) return 0;
-    return ref.source.mapPosition(ref.shifter.sourcePosition) / this.ctx.sampleRate;
+    const ctx = this.ctx;
+    let time = this.lastFrame / this.sampleRate;
+    if (this.playing && ctx) {
+      time += Math.max(0, ctx.currentTime - this.lastAt) * this.tempo;
+      const loop = this.loop;
+      if (loop && loop.end > loop.start && time >= loop.end && this.lastFrame / this.sampleRate < loop.end) {
+        // Extrapolated past the loop end before the worklet's next report.
+        time = loop.start + ((time - loop.start) % (loop.end - loop.start));
+      }
+    }
+    return Math.min(time, this.totalFrames / this.sampleRate);
   }
 
   isPlaying(): boolean {
@@ -143,10 +190,8 @@ export class PlaybackEngine {
   }
 
   dispose(): void {
-    for (const shifter of this.shifters.values()) {
-      shifter.off();
-      shifter.disconnect();
-    }
-    void this.ctx.close();
+    this.disposed = true;
+    if (this.node) this.node.port.onmessage = null;
+    void this.ctx?.close();
   }
 }

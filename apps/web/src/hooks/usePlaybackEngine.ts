@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlaybackEngine } from "../audio/PlaybackEngine";
-import { computePeaks } from "../audio/waveform";
+import type { PeakPyramid } from "../audio/waveform";
 import { stemUrl, type Stem } from "../api";
 
-const PEAK_BUCKETS = 1200;
 
 export interface TrackState {
   muted: boolean;
@@ -19,15 +18,13 @@ export interface LoopRegion {
 export type TimeListener = (time: number) => void;
 export type SubscribeTime = (listener: TimeListener) => () => void;
 
-const yieldToMain = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
 export function usePlaybackEngine(songId: string, stems: Stem[]) {
   const engineRef = useRef<PlaybackEngine | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [peaksByStem, setPeaksByStem] = useState<Map<string, Float32Array>>(new Map());
+  const [peaksByStem, setPeaksByStem] = useState<Map<string, PeakPyramid>>(new Map());
   const [trackStates, setTrackStates] = useState<Map<string, TrackState>>(new Map());
   const [masterVolume, setMasterVolumeState] = useState(1);
   const [playbackRate, setPlaybackRateState] = useState(1);
@@ -69,6 +66,12 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     let cancelled = false;
     const engine = new PlaybackEngine();
     engineRef.current = engine;
+    // The audio thread reports the end itself, so this still works when the
+    // tab is in the background and animation frames aren't running.
+    engine.onEnded = () => {
+      setIsPlaying(false);
+      emitTime(durationRef.current);
+    };
     setReady(false);
     setLoadError(null);
     setLoopRegionState(null);
@@ -77,17 +80,8 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
 
     engine
       .loadStems(stems.map((s) => ({ id: s.id, url: stemUrl(songId, s.id) })))
-      .then(async ({ buffers, duration }) => {
+      .then(({ peaks, duration }) => {
         if (cancelled) return;
-
-        // Each stem is millions of samples; yielding between them keeps the
-        // page responsive instead of freezing for the whole batch.
-        const peaks = new Map<string, Float32Array>();
-        for (const [id, buffer] of buffers) {
-          peaks.set(id, computePeaks(buffer, PEAK_BUCKETS));
-          await yieldToMain();
-          if (cancelled) return;
-        }
         setPeaksByStem(peaks);
 
         const initialStates = new Map<string, TrackState>();

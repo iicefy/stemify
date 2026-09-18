@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from "react";
 import { tickTimesInRange } from "../timelineTicks";
 import { hexToRgba } from "../hexColor";
+import { pickPeakLevel, type PeakPyramid } from "../audio/waveform";
 import { TrackIcon } from "./TrackIcon";
 import { useLoopDrag } from "../hooks/useLoopDrag";
 import type { LoopRegion } from "../hooks/usePlaybackEngine";
@@ -28,7 +29,7 @@ export const TrackLane = memo(function TrackLane({
   id: string;
   name: string;
   color: string;
-  peaks: Float32Array | undefined;
+  peaks: PeakPyramid | undefined;
   duration: number;
   viewStart: number;
   viewDuration: number;
@@ -93,21 +94,21 @@ export const TrackLane = memo(function TrackLane({
       const mid = height / 2;
       ctx.fillStyle = hexToRgba(color, dimmed ? 0.35 : 0.8);
 
-      // Peaks span the whole track (0..duration); only draw the buckets
-      // that fall within the current zoom/pan window, stretched to fill
-      // the canvas. Batched into a single path / fill.
-      const buckets = peaks.length / 2;
-      const bucketDuration = duration / buckets;
+      // Pick the pyramid level that gives ~1 bucket per pixel at the current
+      // zoom, then draw only the buckets inside the visible window, batched
+      // into a single path / fill.
       const pxPerSecond = width / viewDuration;
-      const bucketWidthPx = Math.max(1, bucketDuration * pxPerSecond);
-      const startIdx = Math.max(0, Math.floor(viewStart / bucketDuration));
-      const endIdx = Math.min(buckets, Math.ceil((viewStart + viewDuration) / bucketDuration));
+      const { peaks: level, bucketSeconds } = pickPeakLevel(peaks, pxPerSecond);
+      const buckets = level.length / 2;
+      const bucketWidthPx = Math.max(1, bucketSeconds * pxPerSecond);
+      const startIdx = Math.max(0, Math.floor(viewStart / bucketSeconds));
+      const endIdx = Math.min(buckets, Math.ceil((viewStart + viewDuration) / bucketSeconds));
 
       ctx.beginPath();
       for (let i = startIdx; i < endIdx; i++) {
-        const x = (i * bucketDuration - viewStart) * pxPerSecond;
-        const y1 = mid - peaks[i * 2 + 1] * mid;
-        const y2 = mid - peaks[i * 2] * mid;
+        const x = (i * bucketSeconds - viewStart) * pxPerSecond;
+        const y1 = mid - level[i * 2 + 1] * mid;
+        const y2 = mid - level[i * 2] * mid;
         ctx.rect(x, y1, bucketWidthPx, Math.max(1.5, y2 - y1));
       }
       ctx.fill();
