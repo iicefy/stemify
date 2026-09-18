@@ -52,12 +52,6 @@ export class PlaybackEngine {
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this.masterValue;
     this.masterGain.connect(ctx.destination);
-    // TEMP-DEBUG
-    const an = ctx.createAnalyser();
-    an.fftSize = 2048;
-    this.masterGain.connect(an);
-    (window as unknown as Record<string, unknown>).__an = an;
-    (window as unknown as Record<string, unknown>).__engine = this;
 
     await ctx.audioWorklet.addModule(mixerWorkletUrl);
     this.assertAlive();
