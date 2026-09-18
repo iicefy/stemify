@@ -100,8 +100,15 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     engine.setTempo(playbackRate);
   }, [playbackRate, ready]);
 
-  // Poll playhead position via rAF while playing. When a loop region is
-  // active, wrap back to its start instead of stopping at the end.
+  // The engine wraps the loop inside the audio callback (sample-accurate,
+  // no seek), so it just needs to be told the current region.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !ready) return;
+    engine.setLoop(loopEnabled && loopRegion ? loopRegion : null);
+  }, [loopEnabled, loopRegion, ready]);
+
+  // Poll playhead position via rAF while playing.
   useEffect(() => {
     if (!isPlaying) return;
     let raf: number;
@@ -109,12 +116,6 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
       const engine = engineRef.current;
       if (engine) {
         const t = engine.getCurrentTime();
-        if (loopEnabled && loopRegion && t >= loopRegion.end) {
-          engine.seek(loopRegion.start);
-          setCurrentTime(loopRegion.start);
-          raf = requestAnimationFrame(tick);
-          return;
-        }
         if (t >= duration) {
           engine.pause();
           setIsPlaying(false);
@@ -127,7 +128,7 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, duration, loopEnabled, loopRegion]);
+  }, [isPlaying, duration]);
 
   const controls = useMemo(
     () => ({

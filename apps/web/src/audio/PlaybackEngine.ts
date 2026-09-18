@@ -1,4 +1,5 @@
 import { PitchShifter } from "soundtouchjs";
+import { LoopingBufferSource } from "./LoopingBufferSource";
 
 // Larger blocks trade latency for stability - with 6 simultaneous
 // ScriptProcessorNodes (one per stem) this keeps CPU load reasonable.
@@ -22,6 +23,8 @@ export class PlaybackEngine {
   private buffers = new Map<string, AudioBuffer>();
   private gains = new Map<string, GainNode>();
   private shifters = new Map<string, PitchShifter>();
+  private sources = new Map<string, LoopingBufferSource>();
+  private loop: { start: number; end: number } | null = null;
 
   private playing = false;
   private duration = 0;
@@ -50,6 +53,14 @@ export class PlaybackEngine {
         const shifter = new PitchShifter(this.ctx, buffer, SCRIPT_BUFFER_SIZE);
         shifter.tempo = this.tempo;
         shifter.pitch = 1; // keep natural pitch regardless of tempo
+
+        // Swap in a source that wraps loops inside the audio callback
+        // instead of relying on seeks (see LoopingBufferSource).
+        const source = new LoopingBufferSource(buffer);
+        shifter._filter.sourceSound = source;
+        this.sources.set(stem.id, source);
+        this.applyLoopTo(source);
+
         this.shifters.set(stem.id, shifter);
       })
     );
@@ -70,6 +81,28 @@ export class PlaybackEngine {
   setTempo(rate: number): void {
     this.tempo = rate;
     for (const shifter of this.shifters.values()) shifter.tempo = rate;
+  }
+
+  private applyLoopTo(source: LoopingBufferSource): void {
+    const sr = this.ctx.sampleRate;
+    const loop = this.loop;
+    const start = loop ? Math.round(loop.start * sr) : 0;
+    const end = loop ? Math.round(loop.end * sr) : 0;
+    source.loop = loop && end > start ? { start, end } : null;
+  }
+
+  setLoop(region: { start: number; end: number } | null): void {
+    this.loop = region;
+    for (const [stemId, shifter] of this.shifters) {
+      const source = this.sources.get(stemId);
+      if (!source) continue;
+      const virtual = shifter._filter.sourcePosition;
+      const mapped = source.mapPosition(virtual);
+      this.applyLoopTo(source);
+      // Already wrapped under the old loop: rebase so the position keeps
+      // meaning "where we really are" once the loop changes or turns off.
+      if (virtual !== mapped) shifter._filter.sourcePosition = mapped;
+    }
   }
 
   async play(): Promise<void> {
@@ -94,8 +127,12 @@ export class PlaybackEngine {
   }
 
   getCurrentTime(): number {
-    const first = this.shifters.values().next().value;
-    return first ? first.timePlayed : 0;
+    const entry = this.shifters.entries().next().value;
+    if (!entry) return 0;
+    const [stemId, shifter] = entry;
+    const source = this.sources.get(stemId);
+    const position = source ? source.mapPosition(shifter.sourcePosition) : shifter.sourcePosition;
+    return position / this.ctx.sampleRate;
   }
 
   isPlaying(): boolean {

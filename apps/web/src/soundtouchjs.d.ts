@@ -13,6 +13,7 @@ declare module "soundtouchjs" {
     readonly formattedDuration: string;
     readonly formattedTimePlayed: string;
     readonly node: ScriptProcessorNode;
+    _filter: { sourceSound: unknown; sourcePosition: number };
     connect(toNode: AudioNode): void;
     disconnect(): void;
     on(eventName: string, cb: (detail: unknown) => void): void;
