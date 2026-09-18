@@ -744,32 +744,26 @@ input {
   display: flex;
   align-items: center;
   height: 30px;
-  gap: 0.15rem;
+  gap: 0.4rem;
   flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0 0.2rem;
+  padding: 0 0.6rem;
+  color: var(--text-dim);
 }
 
-.speed-preset {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  border-radius: 4px;
-  padding: 0.28rem 0.35rem;
-  font-size: 0.68rem;
-  font-family: ui-monospace, "SF Mono", monospace;
+.speed-slider {
+  width: 90px;
+  accent-color: var(--text-dim);
   cursor: pointer;
 }
 
-.speed-preset:hover {
-  color: var(--text);
-}
-
-.speed-preset.active {
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 700;
+.speed-value {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  min-width: 4ch;
+  text-align: right;
 }
 
 /* --- Master volume (top bar) --- */

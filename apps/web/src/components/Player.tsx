@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSong, type SongDetail } from "../api";
 import { usePlaybackEngine } from "../hooks/usePlaybackEngine";
 import { trackColor } from "../trackColors";
@@ -61,7 +61,14 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
   // accumulate correctly instead of all reading the same stale zoomIndex.
   // anchorFraction (0..1, where in the *current* view to hold steady) lets
   // wheel-zoom zoom toward the cursor instead of always the view center.
-  function stepZoom(delta: number, anchorFraction = 0.5) {
+  // useCallback with an empty dep array (stable identity forever) is safe
+  // here because these only ever read the *current* duration/view via refs
+  // and update via setView's functional form - never a closed-over state
+  // value. A stable identity lets TrackLane/TimelineRuler/ZoomScrollbar be
+  // React.memo'd, which otherwise wouldn't help: memo only skips a re-render
+  // when every prop (including callbacks) is reference-equal, and a plain
+  // function re-created on every render would defeat that on its own.
+  const stepZoom = useCallback((delta: number, anchorFraction = 0.5) => {
     setView((prev) => {
       const duration = durationRef.current;
       const clampedIndex = Math.min(ZOOM_LEVELS.length - 1, Math.max(0, prev.zoomIndex + delta));
@@ -74,25 +81,25 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         viewStart: Math.min(maxStart, Math.max(0, anchorTime - anchorFraction * newViewDuration)),
       };
     });
-  }
+  }, []);
 
-  function handlePan(newViewStart: number) {
+  const handlePan = useCallback((newViewStart: number) => {
     setView((prev) => {
       const currentViewDuration =
         durationRef.current > 0 ? durationRef.current / ZOOM_LEVELS[prev.zoomIndex] : 0;
       const maxStart = Math.max(0, durationRef.current - currentViewDuration);
       return { ...prev, viewStart: Math.min(maxStart, Math.max(0, newViewStart)) };
     });
-  }
+  }, []);
 
-  function panBy(deltaTime: number) {
+  const panBy = useCallback((deltaTime: number) => {
     setView((prev) => {
       const duration = durationRef.current;
       const vd = duration > 0 ? duration / ZOOM_LEVELS[prev.zoomIndex] : 0;
       const maxStart = Math.max(0, duration - vd);
       return { ...prev, viewStart: Math.min(maxStart, Math.max(0, prev.viewStart + deltaTime)) };
     });
-  }
+  }, []);
 
   // Trackpad support: browsers report a pinch gesture as a wheel event
   // with ctrlKey set (this is true even though no actual Ctrl key is
@@ -316,6 +323,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
                 return (
                   <TrackLane
                     key={stem.id}
+                    id={stem.id}
                     name={stem.name}
                     color={trackColor(stem.name)}
                     peaks={engine.peaksByStem.get(stem.id)}
@@ -327,9 +335,9 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
                     solo={state.solo}
                     volume={state.volume}
                     dimmed={anySoloed && !state.solo}
-                    onToggleMute={() => engine.toggleMute(stem.id)}
-                    onToggleSolo={() => engine.toggleSolo(stem.id)}
-                    onVolumeChange={(v) => engine.setVolume(stem.id, v)}
+                    onToggleMute={engine.toggleMute}
+                    onToggleSolo={engine.toggleSolo}
+                    onVolumeChange={engine.setVolume}
                     onSeek={engine.seek}
                     onHoverMove={setHoverFraction}
                     onSetLoopRegion={engine.setLoopRegion}

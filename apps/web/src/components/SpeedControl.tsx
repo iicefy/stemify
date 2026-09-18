@@ -1,4 +1,6 @@
-const PRESETS = [0.5, 0.75, 1, 1.25, 1.5];
+const MIN_RATE = 0.5;
+const MAX_RATE = 1.5;
+const STEP = 0.05;
 
 export function SpeedControl({
   rate,
@@ -9,15 +11,18 @@ export function SpeedControl({
 }) {
   return (
     <div className="speed-control" title="Playback speed (pitch stays the same)">
-      {PRESETS.map((p) => (
-        <button
-          key={p}
-          className={`speed-preset ${Math.abs(rate - p) < 0.001 ? "active" : ""}`}
-          onClick={() => onChange(p)}
-        >
-          {p}x
-        </button>
-      ))}
+      <input
+        className="speed-slider"
+        type="range"
+        min={MIN_RATE}
+        max={MAX_RATE}
+        step={STEP}
+        value={rate}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={() => onChange(1)}
+        title="Double-click to reset to 1x"
+      />
+      <span className="speed-value">{rate.toFixed(2)}x</span>
     </div>
   );
 }

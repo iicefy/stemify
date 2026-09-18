@@ -1,11 +1,11 @@
-import { useRef } from "react";
+import { memo, useRef } from "react";
 
 /**
  * A thin "you are here" bar under the ruler, shown only while zoomed in:
  * the whole bar represents the full track, and the highlighted thumb is
  * the currently visible window - drag it to pan.
  */
-export function ZoomScrollbar({
+export const ZoomScrollbar = memo(function ZoomScrollbar({
   duration,
   viewStart,
   viewDuration,
@@ -51,4 +51,4 @@ export function ZoomScrollbar({
       </div>
     </div>
   );
-}
+});

@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { tickTimesInRange } from "../timelineTicks";
 import { hexToRgba } from "../hexColor";
 import { TrackIcon } from "./TrackIcon";
 import { useLoopDrag } from "../hooks/useLoopDrag";
 import type { LoopRegion } from "../hooks/usePlaybackEngine";
 
-export function TrackLane({
+export const TrackLane = memo(function TrackLane({
+  id,
   name,
   color,
   peaks,
@@ -24,6 +25,7 @@ export function TrackLane({
   onHoverMove,
   onSetLoopRegion,
 }: {
+  id: string;
   name: string;
   color: string;
   peaks: Float32Array | undefined;
@@ -35,9 +37,9 @@ export function TrackLane({
   volume: number;
   dimmed: boolean;
   striped: boolean;
-  onToggleMute: () => void;
-  onToggleSolo: () => void;
-  onVolumeChange: (v: number) => void;
+  onToggleMute: (id: string) => void;
+  onToggleSolo: (id: string) => void;
+  onVolumeChange: (id: string, v: number) => void;
   onSeek: (time: number) => void;
   onHoverMove: (fraction: number | null) => void;
   onSetLoopRegion: (region: LoopRegion) => void;
@@ -129,14 +131,14 @@ export function TrackLane({
               className={`track-btn track-btn-mute ${muted ? "active" : ""} ${
                 dimmed && !muted ? "auto-muted" : ""
               }`}
-              onClick={onToggleMute}
+              onClick={() => onToggleMute(id)}
               title={dimmed && !muted ? "Muted (another track is soloed)" : "Mute"}
             >
               M
             </button>
             <button
               className={`track-btn track-btn-solo ${solo ? "active" : ""}`}
-              onClick={onToggleSolo}
+              onClick={() => onToggleSolo(id)}
               title="Solo"
             >
               S
@@ -149,7 +151,7 @@ export function TrackLane({
             max={1}
             step={0.01}
             value={volume}
-            onChange={(e) => onVolumeChange(Number(e.target.value))}
+            onChange={(e) => onVolumeChange(id, Number(e.target.value))}
             title="Volume"
           />
           <span className="track-volume-value">{Math.round(volume * 100)}</span>
@@ -172,4 +174,4 @@ export function TrackLane({
       </div>
     </div>
   );
-}
+});

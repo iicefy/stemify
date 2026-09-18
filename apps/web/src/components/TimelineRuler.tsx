@@ -1,9 +1,10 @@
+import { memo } from "react";
 import { tickTimesInRange } from "../timelineTicks";
 import { formatTime } from "../formatTime";
 import { useLoopDrag } from "../hooks/useLoopDrag";
 import type { LoopRegion } from "../hooks/usePlaybackEngine";
 
-export function TimelineRuler({
+export const TimelineRuler = memo(function TimelineRuler({
   viewStart,
   viewDuration,
   loopRegion,
@@ -76,4 +77,4 @@ export function TimelineRuler({
       </div>
     </div>
   );
-}
+});
