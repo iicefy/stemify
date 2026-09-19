@@ -16,6 +16,14 @@ import { TimelineOverlay, type TimelineOverlayHandle } from "./TimelineOverlay";
 // mapping - this tones it down to a more deliberate speed.
 const PAN_SENSITIVITY = 0.12;
 
+// Wheel/pinch movement needed for one zoom step. Trackpad pinches emit dozens
+// of tiny events per gesture; without a threshold every event jumped a whole
+// level.
+const ZOOM_WHEEL_STEP = 50;
+// Leftover (sub-step) movement is forgotten after this long without input, so
+// a stray nudge doesn't count toward the next gesture.
+const ZOOM_ACCUM_RESET_MS = 250;
+
 export function Player({ songId, onBack }: { songId: string; onBack: () => void }) {
   const [song, setSong] = useState<SongDetail | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -118,6 +126,8 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
     // accumulate them and apply once per frame so a gesture costs one
     // render + one waveform redraw per frame instead of one per event.
     let pendingZoom = 0;
+    let zoomAccum = 0;
+    let zoomAccumTimer = 0;
     let pendingPan = 0;
     let anchorFraction = 0.5;
     let frame = 0;
@@ -138,7 +148,15 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         anchorFraction = rulerRect
           ? Math.min(1, Math.max(0, (e.clientX - rulerRect.left) / rulerRect.width))
           : 0.5;
-        pendingZoom += e.deltaY < 0 ? 1 : -1;
+        // Accumulate scroll distance and convert to whole steps (pinch out /
+        // scroll up zooms in).
+        zoomAccum += -e.deltaY;
+        const steps = Math.trunc(zoomAccum / ZOOM_WHEEL_STEP);
+        zoomAccum -= steps * ZOOM_WHEEL_STEP;
+        pendingZoom += steps;
+        window.clearTimeout(zoomAccumTimer);
+        zoomAccumTimer = window.setTimeout(() => (zoomAccum = 0), ZOOM_ACCUM_RESET_MS);
+        if (steps === 0) return;
       } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && e.deltaX !== 0) {
         e.preventDefault();
         const width = rulerRect?.width || 1;
@@ -162,6 +180,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
     return () => {
       el.removeEventListener("wheel", handleWheel);
       if (frame) cancelAnimationFrame(frame);
+      window.clearTimeout(zoomAccumTimer);
     };
     // `.daw-main` only exists once engine.ready flips true (it's behind a
     // conditional render), so this must re-run then - an empty dep array
