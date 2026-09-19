@@ -19,7 +19,7 @@ db.exec(`
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,
     original_path TEXT NOT NULL,
-    status        TEXT NOT NULL, -- 'processing' | 'ready' | 'failed'
+    status        TEXT NOT NULL, -- 'downloading' | 'processing' | 'ready' | 'failed'
     error_message TEXT,
     created_at    TEXT NOT NULL
   );
@@ -36,7 +36,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_songs_created_at ON songs(created_at DESC);
 `);
 
-export type SongStatus = "processing" | "ready" | "failed";
+export type SongStatus = "downloading" | "processing" | "ready" | "failed";
 
 export interface SongRow {
   id: string;

@@ -22,6 +22,40 @@ def pick_device() -> str:
     return "cpu"
 
 
+def decode_to_wav(input_path: str, wav_path: Path) -> None:
+    """Fallback decoder for containers the fast reader can't handle (e.g. the
+    fragmented m4a YouTube serves). PyAV bundles its own FFmpeg, so this works
+    with nothing installed on the machine."""
+    import wave
+
+    import av
+
+    resampler = av.AudioResampler(format="s16", layout="stereo", rate=44100)
+    with av.open(input_path) as container, wave.open(str(wav_path), "wb") as out:
+        out.setnchannels(2)
+        out.setsampwidth(2)
+        out.setframerate(44100)
+        stream = container.streams.audio[0]
+        for frame in container.decode(stream):
+            for resampled in resampler.resample(frame):
+                out.writeframes(bytes(resampled.planes[0]))
+        for resampled in resampler.resample(None):
+            out.writeframes(bytes(resampled.planes[0]))
+
+
+def separate_with_fallback(separator, input_path: str, out_dir: Path):
+    try:
+        return separator.separate_audio_file(Path(input_path))
+    except Exception as first_error:
+        print(f"[separate] direct decode failed ({first_error}); retrying via PyAV", file=sys.stderr)
+        wav_path = out_dir / "decoded.wav"
+        try:
+            decode_to_wav(input_path, wav_path)
+            return separator.separate_audio_file(wav_path)
+        finally:
+            wav_path.unlink(missing_ok=True)
+
+
 def main() -> None:
     if len(sys.argv) != 4:
         print("Usage: separate.py <input_path> <song_id> <stems_dir>", file=sys.stderr)
@@ -39,7 +73,7 @@ def main() -> None:
         print(f"[separate] device={device} input={input_path}", file=sys.stderr)
 
         separator = Separator(model="htdemucs_6s", device=device, progress=True)
-        _original, stems = separator.separate_audio_file(Path(input_path))
+        _original, stems = separate_with_fallback(separator, input_path, out_dir)
 
         manifest = {"status": "done", "stems": {}}
         for name, wav in stems.items():

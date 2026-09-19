@@ -110,6 +110,52 @@ input {
   letter-spacing: 0.03em;
 }
 
+.youtube-form {
+  display: flex;
+  gap: 0.5rem;
+  margin: -0.75rem 0 1.75rem;
+}
+
+.youtube-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.youtube-input::placeholder {
+  color: var(--text-dim);
+}
+
+.youtube-input:focus {
+  border-color: var(--accent);
+}
+
+.youtube-add {
+  height: 38px;
+  padding: 0 1.1rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: var(--accent-contrast);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.youtube-add:disabled {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: default;
+}
+
 .song-list {
   list-style: none;
   padding: 0;
@@ -202,11 +248,13 @@ input {
   50% { opacity: 1; }
 }
 
-.status-processing {
+.status-processing,
+.status-downloading {
   color: var(--accent);
 }
 
-.status-processing .status-dot {
+.status-processing .status-dot,
+.status-downloading .status-dot {
   background: var(--accent);
 }
 

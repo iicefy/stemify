@@ -47,7 +47,7 @@ export function createApp() {
  */
 function failInterruptedJobs(): void {
   db.prepare(
-    "UPDATE songs SET status = 'failed', error_message = 'Interrupted - the app was closed during separation' WHERE status = 'processing'"
+    "UPDATE songs SET status = 'failed', error_message = 'Interrupted - the app was closed before this finished' WHERE status IN ('processing', 'downloading')"
   ).run();
 }
 

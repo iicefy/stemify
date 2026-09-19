@@ -1,11 +1,13 @@
 import { Router } from "express";
 import multer from "multer";
+import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { db, type SongRow, type StemRow } from "../db.js";
 import { UPLOADS_DIR, STEMS_DIR } from "../paths.js";
 import { enqueueSeparation } from "../separation.js";
+import { insertPendingSong, newSongId, parseYoutubeUrl, startYoutubeImport } from "../youtube.js";
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -63,6 +65,21 @@ songsRouter.post("/", upload.single("file"), (req, res) => {
   res.status(201).json({ id, title, status: "processing" });
 });
 
+songsRouter.post("/youtube", express.json({ limit: "10kb" }), (req, res) => {
+  const url = parseYoutubeUrl(req.body?.url);
+  if (!url) {
+    res.status(400).json({ error: "Enter a valid YouTube link" });
+    return;
+  }
+
+  const id = newSongId();
+  // The link stands in as the title until the download reports the real one.
+  insertPendingSong.run(id, url.href, new Date().toISOString());
+  void startYoutubeImport(id, url);
+
+  res.status(201).json({ id, title: url.href, status: "downloading" });
+});
+
 songsRouter.get("/", (_req, res) => {
   const songs = listSongs.all() as SongSummary[];
   res.json(songs.map(toSongDto));
@@ -92,7 +109,7 @@ songsRouter.delete("/:id", (req, res) => {
 
   deleteSong.run(song.id); // cascades to stems
 
-  fs.rm(song.original_path, { force: true }, () => {});
+  if (song.original_path) fs.rm(song.original_path, { force: true }, () => {});
   fs.rm(path.join(STEMS_DIR, song.id), { recursive: true, force: true }, () => {});
 
   res.status(204).end();

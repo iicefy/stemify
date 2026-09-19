@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { deleteSong, listSongs, uploadSong, type Song } from "../api";
+import { deleteSong, importYoutube, listSongs, uploadSong, type Song } from "../api";
 import { songHue } from "../songAvatar";
 import { relativeTime } from "../relativeTime";
 
@@ -7,6 +7,7 @@ const POLL_INTERVAL_MS = 3000;
 const ACCEPTED_EXTENSIONS = [".mp3", ".wav", ".flac", ".m4a", ".ogg"];
 
 const STATUS_LABEL: Record<Song["status"], string> = {
+  downloading: "Downloading…",
   processing: "Separating…",
   ready: "Ready",
   failed: "Failed",
@@ -37,6 +38,8 @@ export function Library({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [addingYoutube, setAddingYoutube] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
@@ -49,7 +52,7 @@ export function Library({
 
   useEffect(() => {
     refresh();
-    const hasProcessing = () => songs.some((s) => s.status === "processing");
+    const hasProcessing = () => songs.some((s) => s.status === "processing" || s.status === "downloading");
     const interval = setInterval(() => {
       if (hasProcessing()) refresh();
     }, POLL_INTERVAL_MS);
@@ -68,6 +71,23 @@ export function Library({
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleYoutube(e: React.FormEvent) {
+    e.preventDefault();
+    const url = youtubeUrl.trim();
+    if (!url) return;
+    setError(null);
+    setAddingYoutube(true);
+    try {
+      await importYoutube(url);
+      setYoutubeUrl("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingYoutube(false);
     }
   }
 
@@ -114,6 +134,21 @@ export function Library({
         <p className="dropzone-sub">MP3, WAV, FLAC, M4A, OGG</p>
       </div>
 
+      <form className="youtube-form" onSubmit={handleYoutube}>
+        <input
+          className="youtube-input"
+          type="url"
+          value={youtubeUrl}
+          onChange={(e) => setYoutubeUrl(e.target.value)}
+          placeholder="…or paste a YouTube link"
+          spellCheck={false}
+          aria-label="YouTube link"
+        />
+        <button className="youtube-add" type="submit" disabled={addingYoutube || !youtubeUrl.trim()}>
+          {addingYoutube ? "Adding…" : "Add"}
+        </button>
+      </form>
+
       {error && <p className="error">{error}</p>}
 
       {songs.length > 0 && <p className="library-count">{songs.length} song{songs.length === 1 ? "" : "s"}</p>}
@@ -140,7 +175,9 @@ export function Library({
               </div>
 
               <span className={`status-badge status-${song.status}`}>
-                <span className={song.status === "processing" ? "status-spinner" : "status-dot"} />
+                <span
+                  className={song.status === "processing" || song.status === "downloading" ? "status-spinner" : "status-dot"}
+                />
                 {STATUS_LABEL[song.status]}
               </span>
 

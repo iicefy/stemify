@@ -3,6 +3,7 @@ dist/
 data/uploads/*
 data/stems/*
 data/db.sqlite
+data/bin/
 !data/uploads/.gitkeep
 !data/stems/.gitkeep
 .DS_Store

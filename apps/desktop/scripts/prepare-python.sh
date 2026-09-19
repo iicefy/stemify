@@ -36,8 +36,17 @@ prune() { # $1 = python dir, $2 = site-packages dir
 
 mkdir -p build
 
+REQ="../../worker/requirements.txt"
+
 if [ "$TARGET" = "mac" ]; then
-  if [ -f build/.python-ready ]; then echo "[python] mac already prepared (delete build/ to rebuild)"; exit 0; fi
+  if [ -f build/.python-ready ]; then
+    if [ ! "$REQ" -nt build/.python-ready ]; then echo "[python] mac already prepared (delete build/ to rebuild)"; exit 0; fi
+    echo "[python] requirements changed - updating the bundled packages"
+    build/python/bin/python3 -m pip install --no-cache-dir --disable-pip-version-check -r "$REQ"
+    prune build/python build/python/lib/python3.13/site-packages
+    touch build/.python-ready
+    exit 0
+  fi
   rm -rf build/hf-home
   fetch_python aarch64-apple-darwin python
   PY="build/python/bin/python3"
@@ -58,16 +67,22 @@ if [ "$TARGET" = "mac" ]; then
   du -sh build/python build/hf-home
 
 elif [ "$TARGET" = "win" ]; then
-  if [ -f build/.python-win-ready ]; then echo "[python] win already prepared (delete build/python-win to rebuild)"; exit 0; fi
   [ -f build/.python-ready ] || bash "$0" mac
-  fetch_python x86_64-pc-windows-msvc python-win
+  UPGRADE=""
+  if [ -f build/.python-win-ready ]; then
+    if [ ! "$REQ" -nt build/.python-win-ready ]; then echo "[python] win already prepared (delete build/python-win to rebuild)"; exit 0; fi
+    echo "[python] requirements changed - updating the bundled Windows packages"
+    UPGRADE="--upgrade"
+  else
+    fetch_python x86_64-pc-windows-msvc python-win
+  fi
 
   SITE="build/python-win/Lib/site-packages"
   mkdir -p "$SITE"
   echo "[python] installing Windows wheels (torch is the CPU build from PyPI)"
   build/python/bin/python3 -m pip install --no-cache-dir --disable-pip-version-check \
     --platform win_amd64 --python-version 3.13 --implementation cp --abi cp313 --only-binary=:all: \
-    --target "$SITE" -r ../../worker/requirements.txt
+    $UPGRADE --target "$SITE" -r "$REQ"
 
   echo "[python] pruning"
   prune build/python-win "$SITE"

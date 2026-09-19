@@ -1,4 +1,4 @@
-export type SongStatus = "processing" | "ready" | "failed";
+export type SongStatus = "downloading" | "processing" | "ready" | "failed";
 
 export interface Song {
   id: string;
@@ -36,6 +36,19 @@ export async function uploadSong(file: File): Promise<Song> {
   form.append("file", file);
   const res = await fetch(BASE, { method: "POST", body: form });
   if (!res.ok) throw new Error("Upload failed");
+  return res.json();
+}
+
+export async function importYoutube(url: string): Promise<Song> {
+  const res = await fetch(`${BASE}/youtube`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "Could not add that link");
+  }
   return res.json();
 }
 

@@ -31,6 +31,21 @@ worker venv steps in [worker/README.md](worker/README.md), then `npm run dev`.
 
 Uploaded files and generated stems are stored in `data/` (gitignored).
 
+## Adding songs from YouTube
+
+Paste a YouTube link into the box under the upload area and press **Add**. The
+app downloads the audio (up to 60 minutes) with `yt-dlp`, then separates it
+like any uploaded file. Status shows *Downloading…* then *Separating…*.
+
+- `yt-dlp` is fetched on first use into the data folder (`data/bin`) and
+  updates itself when it is a few days old or a download fails - YouTube
+  changes often enough that a frozen copy would break. First use needs internet.
+- Only single videos are taken (a playlist link adds its first video).
+- Formats the fast decoder can't read (like YouTube's m4a) are decoded through
+  PyAV, which ships its own FFmpeg - nothing else to install.
+- Downloading may go against YouTube's terms and the music is usually
+  copyrighted; use it only for personal practice with music you're entitled to.
+
 ## Mac app
 
 Stemify also ships as a self-contained macOS app (Apple Silicon): Electron
