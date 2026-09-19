@@ -64,6 +64,14 @@ export async function renameSong(id: string, title: string): Promise<void> {
   }
 }
 
+export async function retrySong(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/${id}/retry`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "Retry failed");
+  }
+}
+
 export async function deleteSong(id: string): Promise<void> {
   const res = await fetch(`${BASE}/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Delete failed");

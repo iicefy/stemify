@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { db } from "./db.js";
 import { UPLOADS_DIR } from "./paths.js";
@@ -23,8 +24,8 @@ const markDownloaded = db.prepare(
   "UPDATE songs SET title = ?, original_path = ?, status = 'processing' WHERE id = ?"
 );
 export const insertPendingSong = db.prepare(
-  `INSERT INTO songs (id, title, original_path, status, created_at)
-   VALUES (?, ?, '', 'downloading', ?)`
+  `INSERT INTO songs (id, title, original_path, status, created_at, source_url)
+   VALUES (?, ?, '', 'downloading', ?, ?)`
 );
 
 function download(id: string, url: URL) {
@@ -65,6 +66,12 @@ export async function startYoutubeImport(id: string, url: URL): Promise<void> {
           ? `Video is longer than ${MAX_MINUTES} minutes or too large`
           : (result.stderr.split(/\r?\n/).filter(Boolean).pop() ?? "Download failed");
       markFailed.run(reason.replace(/^ERROR:\s*/, ""), id);
+      return;
+    }
+
+    // Deleted while downloading: drop the file instead of separating it.
+    if (!db.prepare("SELECT 1 FROM songs WHERE id = ?").get(id)) {
+      fs.rm(filePath, { force: true }, () => {});
       return;
     }
 

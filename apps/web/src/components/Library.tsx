@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { deleteSong, importYoutube, listSongs, renameSong, uploadSong, type Song } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { deleteSong, importYoutube, listSongs, renameSong, retrySong, uploadSong, type Song } from "../api";
 import { songHue } from "../songAvatar";
 import { relativeTime } from "../relativeTime";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { useToast } from "./ToastProvider";
 
 const POLL_INTERVAL_MS = 3000;
 const ACCEPTED_EXTENSIONS = [".mp3", ".wav", ".flac", ".m4a", ".ogg"];
@@ -12,6 +14,44 @@ const STATUS_LABEL: Record<Song["status"], string> = {
   ready: "Ready",
   failed: "Failed",
 };
+
+type SortKey = "newest" | "oldest" | "az" | "za";
+const SORT_LABELS: Record<SortKey, string> = {
+  newest: "Newest first",
+  oldest: "Oldest first",
+  az: "Name A–Z",
+  za: "Name Z–A",
+};
+const SORT_STORAGE_KEY = "stemify.librarySort";
+
+function loadSort(): SortKey {
+  try {
+    const saved = localStorage.getItem(SORT_STORAGE_KEY);
+    if (saved && saved in SORT_LABELS) return saved as SortKey;
+  } catch {
+    // Storage can be unavailable; the default is fine.
+  }
+  return "newest";
+}
+
+function sortSongs(songs: Song[], sort: SortKey): Song[] {
+  const byName = (a: Song, b: Song) => a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true });
+  const sorted = [...songs];
+  switch (sort) {
+    case "newest":
+      return sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    case "oldest":
+      return sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    case "az":
+      return sorted.sort(byName);
+    case "za":
+      return sorted.sort((a, b) => byName(b, a));
+  }
+}
+
+const isBusy = (song: Song) => song.status === "processing" || song.status === "downloading";
+const firstLine = (text: string) => text.split(/\r?\n/)[0];
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function NoteIcon() {
   return (
@@ -37,79 +77,186 @@ function TrashIcon() {
   );
 }
 
-export function Library({
-  onSelectSong,
-}: {
-  onSelectSong: (id: string) => void;
-}) {
+function UploadIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M12 16V4M12 4l-4 4M12 4l4 4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EmptyState({ onChooseFile }: { onChooseFile: () => void }) {
+  return (
+    <div className="empty-state">
+      <h2 className="empty-title">Add your first song</h2>
+      <p className="empty-lead">Split any song into instruments, then practice along with just the parts you want.</p>
+      <ol className="empty-steps">
+        <li>
+          <span className="empty-step-number">1</span>
+          <span>Drop an audio file anywhere in this window, or paste a YouTube link.</span>
+        </li>
+        <li>
+          <span className="empty-step-number">2</span>
+          <span>Stemify separates it into drums, bass, vocals, guitar, piano and other. It takes a minute or two.</span>
+        </li>
+        <li>
+          <span className="empty-step-number">3</span>
+          <span>Open it to mute or solo tracks, loop a section, and slow it down without changing the pitch.</span>
+        </li>
+      </ol>
+      <button className="btn btn-primary" onClick={onChooseFile}>
+        Choose a file
+      </button>
+    </div>
+  );
+}
+
+function SkeletonRows() {
+  return (
+    <ul className="song-list" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <li key={i} className="song-row song-row-skeleton">
+          <span className="song-avatar skeleton" />
+          <div className="song-info">
+            <span className="skeleton skeleton-line" style={{ width: `${70 - i * 12}%` }} />
+            <span className="skeleton skeleton-line skeleton-line-short" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Library({ onSelectSong }: { onSelectSong: (id: string) => void }) {
+  const toast = useToast();
   const [songs, setSongs] = useState<Song[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [addingYoutube, setAddingYoutube] = useState(false);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>(loadSort);
+  const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  // Escape and Enter both end an edit by blurring the input; this tells the
-  // blur handler whether to save or throw the edit away.
+  // Escape and Enter both end a rename by blurring the input; this tells the
+  // blur handler whether to save or discard.
   const cancelEdit = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function refresh() {
+  async function refresh(quiet = false) {
     try {
       setSongs(await listSongs());
+      setLoaded(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Polling failures would otherwise pop a toast every few seconds.
+      if (!quiet) toast.show(errorText(err), { kind: "error" });
     }
   }
 
   useEffect(() => {
-    refresh();
-    const hasProcessing = () => songs.some((s) => s.status === "processing" || s.status === "downloading");
+    void refresh();
     const interval = setInterval(() => {
-      if (hasProcessing()) refresh();
+      if (songs.some(isBusy)) void refresh(true);
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songs.map((s) => s.status).join(",")]);
 
-  async function handleFile(file: File) {
-    setError(null);
+  async function handleFiles(files: File[]) {
+    const supported = files.filter((f) => ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)));
+    for (const file of files) {
+      if (!supported.includes(file)) {
+        toast.show(`“${file.name}” isn’t a supported audio file (MP3, WAV, FLAC, M4A or OGG).`, { kind: "error" });
+      }
+    }
+    if (supported.length === 0) return;
+
     setUploading(true);
     try {
-      await uploadSong(file);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      for (const file of supported) {
+        try {
+          const song = await uploadSong(file);
+          toast.show(`Added “${song.title}”. Separating it now.`, { kind: "success" });
+          await refresh(true);
+        } catch (err) {
+          toast.show(`Couldn’t upload “${file.name}”: ${errorText(err)}`, { kind: "error" });
+        }
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
+  // Dropping a file anywhere on the page works, not only on the drop box.
+  // Kept in a ref so the window listeners (attached once) always call the
+  // latest version.
+  const handleFilesRef = useRef(handleFiles);
+  handleFilesRef.current = handleFiles;
+  useEffect(() => {
+    let depth = 0; // dragenter/dragleave also fire for every child element
+    const hasFiles = (e: DragEvent) => e.dataTransfer?.types?.includes("Files") ?? false;
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth++;
+      setDragActive(true);
+    };
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragActive(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragActive(false);
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length > 0) void handleFilesRef.current(files);
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   async function handleYoutube(e: React.FormEvent) {
     e.preventDefault();
     const url = youtubeUrl.trim();
     if (!url) return;
-    setError(null);
     setAddingYoutube(true);
     try {
       await importYoutube(url);
       setYoutubeUrl("");
-      await refresh();
+      toast.show("Link added. Downloading it now.", { kind: "success" });
+      await refresh(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.show(errorText(err), { kind: "error" });
     } finally {
       setAddingYoutube(false);
     }
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) void handleFile(file);
+  function changeSort(next: SortKey) {
+    setSort(next);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, next);
+    } catch {
+      // Not critical.
+    }
   }
 
   function startRename(song: Song, e: React.MouseEvent) {
@@ -126,53 +273,92 @@ export function Library({
     setEditingId(null);
     if (discard || title.length === 0 || title === song.title) return;
 
-    // Show the new name immediately; the server call follows.
     setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, title } : s)));
     try {
       await renameSong(song.id, title);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      await refresh();
+      toast.show(errorText(err), { kind: "error" });
+      await refresh(true);
     }
   }
 
-  async function handleDelete(id: string, e: React.MouseEvent) {
+  async function handleRetry(song: Song, e: React.MouseEvent) {
     e.stopPropagation();
-    await deleteSong(id);
-    await refresh();
+    try {
+      await retrySong(song.id);
+      toast.show(`Retrying “${song.title}”…`, { kind: "info" });
+    } catch (err) {
+      toast.show(errorText(err), { kind: "error" });
+    }
+    await refresh(true);
+  }
+
+  async function confirmDelete() {
+    const song = pendingDelete;
+    setPendingDelete(null);
+    if (!song) return;
+    try {
+      await deleteSong(song.id);
+      setSongs((prev) => prev.filter((s) => s.id !== song.id));
+      toast.show(`Deleted “${song.title}”.`, { kind: "success" });
+    } catch (err) {
+      toast.show(errorText(err), { kind: "error" });
+    } finally {
+      void refresh(true);
+    }
   }
 
   const needle = query.trim().toLowerCase();
   const isSearching = needle.length > 0;
-  const visibleSongs = isSearching ? songs.filter((s) => s.title.toLowerCase().includes(needle)) : songs;
+  const visibleSongs = useMemo(() => {
+    const matching = isSearching ? songs.filter((s) => s.title.toLowerCase().includes(needle)) : songs;
+    return sortSongs(matching, sort);
+  }, [songs, needle, isSearching, sort]);
+
+  const deleteMessage = pendingDelete
+    ? isBusy(pendingDelete)
+      ? `“${pendingDelete.title}” is still being ${pendingDelete.status === "downloading" ? "downloaded" : "separated"}. Deleting it stops that and removes it from your library.`
+      : `This removes “${pendingDelete.title}” and its separated tracks from your library. This can’t be undone.`
+    : "";
 
   return (
     <div className="library">
+      {dragActive && (
+        <div className="drop-overlay" aria-hidden="true">
+          <div className="drop-overlay-card">
+            <UploadIcon size={36} />
+            <p>Drop to add to your library</p>
+          </div>
+        </div>
+      )}
+
       <div
-        className={`dropzone ${dragActive ? "dropzone-active" : ""}`}
+        className="dropzone"
+        role="button"
+        tabIndex={0}
+        aria-label="Add songs: drop audio files or press Enter to browse"
         onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragActive(true);
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            fileInputRef.current?.click();
+          }
         }}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={handleDrop}
       >
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept={ACCEPTED_EXTENSIONS.join(",")}
           className="dropzone-input"
+          tabIndex={-1}
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
+            const files = Array.from(e.target.files ?? []);
+            if (files.length > 0) void handleFiles(files);
           }}
         />
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M12 16V4M12 4l-4 4M12 4l4 4" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <p className="dropzone-title">{uploading ? "Uploading…" : "Drop a song here, or click to browse"}</p>
+        <UploadIcon size={28} />
+        <p className="dropzone-title">{uploading ? "Uploading…" : "Drop songs here, or click to browse"}</p>
         <p className="dropzone-sub">MP3, WAV, FLAC, M4A, OGG</p>
       </div>
 
@@ -186,96 +372,139 @@ export function Library({
           spellCheck={false}
           aria-label="YouTube link"
         />
-        <button className="youtube-add" type="submit" disabled={addingYoutube || !youtubeUrl.trim()}>
+        <button className="btn btn-primary" type="submit" disabled={addingYoutube || !youtubeUrl.trim()}>
           {addingYoutube ? "Adding…" : "Add"}
         </button>
       </form>
 
-      {error && <p className="error">{error}</p>}
+      {!loaded && <SkeletonRows />}
 
-      {songs.length > 0 && (
-        <div className="library-toolbar">
-          <p className="library-count">
-            {isSearching
-              ? `${visibleSongs.length} of ${songs.length} songs`
-              : `${songs.length} song${songs.length === 1 ? "" : "s"}`}
-          </p>
-          <input
-            className="library-search"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder="Search songs"
-            spellCheck={false}
-            aria-label="Search songs"
-          />
-        </div>
+      {loaded && songs.length === 0 && <EmptyState onChooseFile={() => fileInputRef.current?.click()} />}
+
+      {loaded && songs.length > 0 && (
+        <>
+          <div className="library-toolbar">
+            <p className="library-count">
+              {isSearching
+                ? `${visibleSongs.length} of ${songs.length} songs`
+                : `${songs.length} song${songs.length === 1 ? "" : "s"}`}
+            </p>
+            <div className="library-controls">
+              <input
+                className="library-search"
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+                placeholder="Search songs"
+                spellCheck={false}
+                aria-label="Search songs"
+              />
+              <select
+                className="library-sort"
+                value={sort}
+                onChange={(e) => changeSort(e.target.value as SortKey)}
+                aria-label="Sort songs"
+              >
+                {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                  <option key={key} value={key}>
+                    {SORT_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <ul className="song-list">
+            {visibleSongs.map((song) => (
+              <li
+                key={song.id}
+                className={`song-row ${song.status === "ready" ? "song-row-clickable" : ""}`}
+                onClick={() => song.status === "ready" && onSelectSong(song.id)}
+              >
+                <span className="song-avatar" style={{ background: `hsl(${songHue(song.id)} 32% 28%)` }}>
+                  <NoteIcon />
+                </span>
+
+                <div className="song-info">
+                  {editingId === song.id ? (
+                    <input
+                      className="song-title-input"
+                      value={editValue}
+                      autoFocus
+                      maxLength={200}
+                      aria-label="Song name"
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={() => void commitRename(song)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") {
+                          cancelEdit.current = true;
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span className="song-title">{song.title}</span>
+                  )}
+                  <span className="song-meta">
+                    {relativeTime(song.createdAt)}
+                    {song.status === "failed" && song.errorMessage && (
+                      <>
+                        {" · "}
+                        <span className="song-error" title={song.errorMessage}>
+                          {firstLine(song.errorMessage)}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <span className={`status-badge status-${song.status}`}>
+                  <span className={isBusy(song) ? "status-spinner" : "status-dot"} />
+                  {STATUS_LABEL[song.status]}
+                </span>
+
+                {song.status === "failed" && (
+                  <button className="btn btn-small" onClick={(e) => handleRetry(song, e)}>
+                    Retry
+                  </button>
+                )}
+
+                <button className="icon-btn" onClick={(e) => startRename(song, e)} title="Rename" aria-label={`Rename ${song.title}`}>
+                  <PencilIcon />
+                </button>
+
+                <button
+                  className="icon-btn icon-btn-danger"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDelete(song);
+                  }}
+                  title="Delete"
+                  aria-label={`Delete ${song.title}`}
+                >
+                  <TrashIcon />
+                </button>
+              </li>
+            ))}
+            {visibleSongs.length === 0 && <li className="empty">No songs match “{query.trim()}”.</li>}
+          </ul>
+        </>
       )}
 
-      <ul className="song-list">
-        {visibleSongs.map((song) => {
-          const hue = songHue(song.id);
-          return (
-            <li
-              key={song.id}
-              className={`song-row ${song.status === "ready" ? "song-row-clickable" : ""}`}
-              onClick={() => song.status === "ready" && onSelectSong(song.id)}
-            >
-              <span
-                className="song-avatar"
-                style={{ background: `hsl(${hue} 32% 28%)` }}
-              >
-                <NoteIcon />
-              </span>
-
-              <div className="song-info">
-                {editingId === song.id ? (
-                  <input
-                    className="song-title-input"
-                    value={editValue}
-                    autoFocus
-                    maxLength={200}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={() => void commitRename(song)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") e.currentTarget.blur();
-                      if (e.key === "Escape") {
-                        cancelEdit.current = true;
-                        e.currentTarget.blur();
-                      }
-                    }}
-                  />
-                ) : (
-                  <span className="song-title">{song.title}</span>
-                )}
-                <span className="song-meta">{relativeTime(song.createdAt)}</span>
-              </div>
-
-              <span className={`status-badge status-${song.status}`}>
-                <span
-                  className={song.status === "processing" || song.status === "downloading" ? "status-spinner" : "status-dot"}
-                />
-                {STATUS_LABEL[song.status]}
-              </span>
-
-              <button className="song-rename" onClick={(e) => startRename(song, e)} title="Rename">
-                <PencilIcon />
-              </button>
-
-              <button className="song-delete" onClick={(e) => handleDelete(song.id, e)} title="Delete">
-                <TrashIcon />
-              </button>
-            </li>
-          );
-        })}
-        {songs.length === 0 && <li className="empty">No songs yet — drop one above to get started.</li>}
-        {songs.length > 0 && visibleSongs.length === 0 && (
-          <li className="empty">No songs match “{query.trim()}”.</li>
-        )}
-      </ul>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete this song?"
+          message={deleteMessage}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }

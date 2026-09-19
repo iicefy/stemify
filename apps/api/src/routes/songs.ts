@@ -6,7 +6,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { db, type SongRow, type StemRow } from "../db.js";
 import { UPLOADS_DIR, STEMS_DIR } from "../paths.js";
-import { enqueueSeparation } from "../separation.js";
+import { cancelSeparation, enqueueSeparation } from "../separation.js";
 import { insertPendingSong, newSongId, parseYoutubeUrl, startYoutubeImport } from "../youtube.js";
 
 const upload = multer({
@@ -44,6 +44,7 @@ const getSong = db.prepare("SELECT * FROM songs WHERE id = ?");
 const listStems = db.prepare("SELECT id, name FROM stems WHERE song_id = ?");
 const deleteSong = db.prepare("DELETE FROM songs WHERE id = ?");
 const renameSong = db.prepare("UPDATE songs SET title = ? WHERE id = ?");
+const setStatus = db.prepare("UPDATE songs SET status = ?, error_message = NULL WHERE id = ?");
 const getStem = db.prepare("SELECT file_path FROM stems WHERE id = ? AND song_id = ?");
 
 songsRouter.post("/", upload.single("file"), (req, res) => {
@@ -75,7 +76,7 @@ songsRouter.post("/youtube", express.json({ limit: "10kb" }), (req, res) => {
 
   const id = newSongId();
   // The link stands in as the title until the download reports the real one.
-  insertPendingSong.run(id, url.href, new Date().toISOString());
+  insertPendingSong.run(id, url.href, new Date().toISOString(), url.href);
   void startYoutubeImport(id, url);
 
   res.status(201).json({ id, title: url.href, status: "downloading" });
@@ -98,6 +99,36 @@ songsRouter.get("/:id", (req, res) => {
     ...toSongDto(song),
     stems: listStems.all(song.id),
   });
+});
+
+songsRouter.post("/:id/retry", (req, res) => {
+  const song = getSong.get(req.params.id) as SongRow | undefined;
+  if (!song) {
+    res.status(404).json({ error: "Song not found" });
+    return;
+  }
+  if (song.status !== "failed") {
+    res.status(400).json({ error: "Only failed songs can be retried" });
+    return;
+  }
+
+  if (song.original_path && fs.existsSync(song.original_path)) {
+    fs.rmSync(path.join(STEMS_DIR, song.id), { recursive: true, force: true });
+    setStatus.run("processing", song.id);
+    enqueueSeparation(song.id, song.original_path);
+    res.json({ id: song.id, status: "processing" });
+    return;
+  }
+
+  const url = parseYoutubeUrl(song.source_url);
+  if (url) {
+    setStatus.run("downloading", song.id);
+    void startYoutubeImport(song.id, url);
+    res.json({ id: song.id, status: "downloading" });
+    return;
+  }
+
+  res.status(400).json({ error: "The original file is gone. Delete this song and add it again." });
 });
 
 songsRouter.patch("/:id", express.json({ limit: "10kb" }), (req, res) => {
@@ -124,6 +155,7 @@ songsRouter.delete("/:id", (req, res) => {
   }
 
   deleteSong.run(song.id); // cascades to stems
+  cancelSeparation(song.id);
 
   if (song.original_path) fs.rm(song.original_path, { force: true }, () => {});
   fs.rm(path.join(STEMS_DIR, song.id), { recursive: true, force: true }, () => {});

@@ -36,6 +36,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_songs_created_at ON songs(created_at DESC);
 `);
 
+// Added after the first release: remembers where a YouTube song came from so a
+// failed download can be retried.
+const songColumns = db.prepare("PRAGMA table_info(songs)").all() as { name: string }[];
+if (!songColumns.some((c) => c.name === "source_url")) {
+  db.exec("ALTER TABLE songs ADD COLUMN source_url TEXT");
+}
+
 export type SongStatus = "downloading" | "processing" | "ready" | "failed";
 
 export interface SongRow {
@@ -45,6 +52,7 @@ export interface SongRow {
   status: SongStatus;
   error_message: string | null;
   created_at: string;
+  source_url: string | null;
 }
 
 export interface StemRow {

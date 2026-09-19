@@ -27,6 +27,14 @@ const insertStem = db.prepare(
 const queue: Job[] = [];
 let running = false;
 let current: ChildProcess | null = null;
+let currentSongId: string | null = null;
+
+/** Forget a song's queued job, or stop it if it's the one running (its song was deleted). */
+export function cancelSeparation(songId: string): void {
+  const queued = queue.findIndex((job) => job.songId === songId);
+  if (queued !== -1) queue.splice(queued, 1);
+  if (currentSongId === songId) current?.kill();
+}
 
 /** Stop the running separation and drop queued jobs (used when the app quits). */
 export function stopSeparation(): void {
@@ -65,6 +73,7 @@ function runSeparation(job: Job): Promise<void> {
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONNOUSERSITE: "1" },
     });
     current = child;
+    currentSongId = songId;
 
     child.stdout.on("data", (chunk) => process.stdout.write(`[worker ${songId}] ${chunk}`));
     child.stderr.on("data", (chunk) => process.stderr.write(`[worker ${songId}] ${chunk}`));
@@ -78,6 +87,7 @@ function runSeparation(job: Job): Promise<void> {
 
     child.on("close", () => {
       current = null;
+      currentSongId = null;
       finalize(songId);
       resolve();
     });
@@ -85,6 +95,12 @@ function runSeparation(job: Job): Promise<void> {
 }
 
 function finalize(songId: string): void {
+  // The song may have been deleted while it was being separated.
+  if (!db.prepare("SELECT 1 FROM songs WHERE id = ?").get(songId)) {
+    fs.rm(path.join(STEMS_DIR, songId), { recursive: true, force: true }, () => {});
+    return;
+  }
+
   const songStemsDir = path.join(STEMS_DIR, songId);
   const manifestPath = path.join(songStemsDir, "manifest.json");
 
