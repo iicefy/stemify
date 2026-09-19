@@ -43,6 +43,7 @@ const listSongs = db.prepare(
 const getSong = db.prepare("SELECT * FROM songs WHERE id = ?");
 const listStems = db.prepare("SELECT id, name FROM stems WHERE song_id = ?");
 const deleteSong = db.prepare("DELETE FROM songs WHERE id = ?");
+const renameSong = db.prepare("UPDATE songs SET title = ? WHERE id = ?");
 const getStem = db.prepare("SELECT file_path FROM stems WHERE id = ? AND song_id = ?");
 
 songsRouter.post("/", upload.single("file"), (req, res) => {
@@ -97,6 +98,21 @@ songsRouter.get("/:id", (req, res) => {
     ...toSongDto(song),
     stems: listStems.all(song.id),
   });
+});
+
+songsRouter.patch("/:id", express.json({ limit: "10kb" }), (req, res) => {
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  if (title.length === 0 || title.length > 200) {
+    res.status(400).json({ error: "Title must be 1-200 characters" });
+    return;
+  }
+
+  if (renameSong.run(title, req.params.id).changes === 0) {
+    res.status(404).json({ error: "Song not found" });
+    return;
+  }
+
+  res.json({ id: req.params.id, title });
 });
 
 songsRouter.delete("/:id", (req, res) => {

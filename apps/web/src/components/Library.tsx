@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { deleteSong, importYoutube, listSongs, uploadSong, type Song } from "../api";
+import { deleteSong, importYoutube, listSongs, renameSong, uploadSong, type Song } from "../api";
 import { songHue } from "../songAvatar";
 import { relativeTime } from "../relativeTime";
 
@@ -17,6 +17,14 @@ function NoteIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
       <path d="M6 11.5a2 2 0 1 1-1-1.73V3.2a.5.5 0 0 1 .4-.49l6-1.2a.5.5 0 0 1 .6.49V9.5a2 2 0 1 1-1-1.73V4.13l-5 1V11.5z" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M11 2.5l2.5 2.5L5.5 13H3v-2.5L11 2.5z" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -40,6 +48,12 @@ export function Library({
   const [dragActive, setDragActive] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [addingYoutube, setAddingYoutube] = useState(false);
+  const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  // Escape and Enter both end an edit by blurring the input; this tells the
+  // blur handler whether to save or throw the edit away.
+  const cancelEdit = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
@@ -98,11 +112,39 @@ export function Library({
     if (file) void handleFile(file);
   }
 
+  function startRename(song: Song, e: React.MouseEvent) {
+    e.stopPropagation();
+    cancelEdit.current = false;
+    setEditValue(song.title);
+    setEditingId(song.id);
+  }
+
+  async function commitRename(song: Song) {
+    const title = editValue.trim();
+    const discard = cancelEdit.current;
+    cancelEdit.current = false;
+    setEditingId(null);
+    if (discard || title.length === 0 || title === song.title) return;
+
+    // Show the new name immediately; the server call follows.
+    setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, title } : s)));
+    try {
+      await renameSong(song.id, title);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      await refresh();
+    }
+  }
+
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     await deleteSong(id);
     await refresh();
   }
+
+  const needle = query.trim().toLowerCase();
+  const isSearching = needle.length > 0;
+  const visibleSongs = isSearching ? songs.filter((s) => s.title.toLowerCase().includes(needle)) : songs;
 
   return (
     <div className="library">
@@ -151,10 +193,28 @@ export function Library({
 
       {error && <p className="error">{error}</p>}
 
-      {songs.length > 0 && <p className="library-count">{songs.length} song{songs.length === 1 ? "" : "s"}</p>}
+      {songs.length > 0 && (
+        <div className="library-toolbar">
+          <p className="library-count">
+            {isSearching
+              ? `${visibleSongs.length} of ${songs.length} songs`
+              : `${songs.length} song${songs.length === 1 ? "" : "s"}`}
+          </p>
+          <input
+            className="library-search"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+            placeholder="Search songs"
+            spellCheck={false}
+            aria-label="Search songs"
+          />
+        </div>
+      )}
 
       <ul className="song-list">
-        {songs.map((song) => {
+        {visibleSongs.map((song) => {
           const hue = songHue(song.id);
           return (
             <li
@@ -170,7 +230,27 @@ export function Library({
               </span>
 
               <div className="song-info">
-                <span className="song-title">{song.title}</span>
+                {editingId === song.id ? (
+                  <input
+                    className="song-title-input"
+                    value={editValue}
+                    autoFocus
+                    maxLength={200}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => void commitRename(song)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") {
+                        cancelEdit.current = true;
+                        e.currentTarget.blur();
+                      }
+                    }}
+                  />
+                ) : (
+                  <span className="song-title">{song.title}</span>
+                )}
                 <span className="song-meta">{relativeTime(song.createdAt)}</span>
               </div>
 
@@ -181,6 +261,10 @@ export function Library({
                 {STATUS_LABEL[song.status]}
               </span>
 
+              <button className="song-rename" onClick={(e) => startRename(song, e)} title="Rename">
+                <PencilIcon />
+              </button>
+
               <button className="song-delete" onClick={(e) => handleDelete(song.id, e)} title="Delete">
                 <TrashIcon />
               </button>
@@ -188,6 +272,9 @@ export function Library({
           );
         })}
         {songs.length === 0 && <li className="empty">No songs yet — drop one above to get started.</li>}
+        {songs.length > 0 && visibleSongs.length === 0 && (
+          <li className="empty">No songs match “{query.trim()}”.</li>
+        )}
       </ul>
     </div>
   );

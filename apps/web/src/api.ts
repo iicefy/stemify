@@ -52,6 +52,18 @@ export async function importYoutube(url: string): Promise<Song> {
   return res.json();
 }
 
+export async function renameSong(id: string, title: string): Promise<void> {
+  const res = await fetch(`${BASE}/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "Rename failed");
+  }
+}
+
 export async function deleteSong(id: string): Promise<void> {
   const res = await fetch(`${BASE}/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Delete failed");
