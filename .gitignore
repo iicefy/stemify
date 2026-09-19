@@ -10,3 +10,7 @@ worker/.venv/
 worker/__pycache__/
 *.pyc
 .env
+apps/desktop/build/
+apps/desktop/dist/
+apps/desktop/release/
+apps/desktop/assets/icon-1024.png

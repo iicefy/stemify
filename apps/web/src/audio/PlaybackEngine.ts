@@ -144,10 +144,13 @@ export class PlaybackEngine {
   async play(): Promise<void> {
     const ctx = this.ctx;
     if (!ctx || this.playing) return;
-    if (ctx.state === "suspended") await ctx.resume();
+    // Flip state first: resume() can take a moment, and a pause/stop that
+    // arrives during it must see us as playing (and cancel), not be ignored.
+    // A suspended context's clock is frozen, so lastAt stays valid across it.
     this.lastAt = ctx.currentTime;
     this.playing = true;
     this.send({ type: "play" });
+    if (ctx.state === "suspended") await ctx.resume();
   }
 
   pause(): void {

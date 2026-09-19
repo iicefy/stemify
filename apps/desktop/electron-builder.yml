@@ -1,0 +1,45 @@
+appId: com.stemify.app
+productName: Stemify
+copyright: Stemify
+
+directories:
+  output: release
+  buildResources: assets
+
+# better-sqlite3 v13 ships N-API prebuilds, so nothing needs rebuilding for
+# Electron's ABI.
+npmRebuild: false
+nodeGypRebuild: false
+
+files:
+  - dist/main.mjs
+  - package.json
+
+# Everything the packaged app needs at runtime lives outside app.asar so the
+# Python worker can read it with plain file access.
+extraResources:
+  - from: ../web/dist
+    to: web
+  - from: ../../worker/separate.py
+    to: worker/separate.py
+  - from: build/python
+    to: python
+  - from: build/hf-home
+    to: hf-home
+
+mac:
+  category: public.app-category.music
+  icon: assets/icon.icns
+  target:
+    - target: dir
+      arch: arm64
+    - target: dmg
+      arch: arm64
+  # No Apple Developer ID: the build is ad-hoc signed, so it runs on the Mac
+  # that built it. Sharing with other Macs needs a right-click > Open the
+  # first time (or a paid signing identity + notarization).
+  identity: null
+  hardenedRuntime: false
+
+dmg:
+  title: Stemify

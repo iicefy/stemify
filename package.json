@@ -8,7 +8,10 @@
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api"
+    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
+    "desktop": "npm run build --workspace=apps/web && npm run start --workspace=apps/desktop",
+    "desktop:pack": "npm run build --workspace=apps/web && npm run pack --workspace=apps/desktop",
+    "desktop:dist": "npm run build --workspace=apps/web && npm run dist --workspace=apps/desktop"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

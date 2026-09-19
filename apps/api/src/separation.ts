@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -26,6 +26,13 @@ const insertStem = db.prepare(
 
 const queue: Job[] = [];
 let running = false;
+let current: ChildProcess | null = null;
+
+/** Stop the running separation and drop queued jobs (used when the app quits). */
+export function stopSeparation(): void {
+  queue.length = 0;
+  current?.kill();
+}
 
 export function enqueueSeparation(songId: string, inputPath: string): void {
   queue.push({ songId, inputPath });
@@ -52,7 +59,12 @@ function runSeparation(job: Job): Promise<void> {
   const { songId, inputPath } = job;
 
   return new Promise((resolve) => {
-    const child = spawn(WORKER_PYTHON, [WORKER_SCRIPT, inputPath, songId, STEMS_DIR]);
+    const child = spawn(WORKER_PYTHON, [WORKER_SCRIPT, inputPath, songId, STEMS_DIR], {
+      // Keep the interpreter from writing .pyc files or reading user
+      // site-packages - matters for a read-only bundled app.
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONNOUSERSITE: "1" },
+    });
+    current = child;
 
     child.stdout.on("data", (chunk) => process.stdout.write(`[worker ${songId}] ${chunk}`));
     child.stderr.on("data", (chunk) => process.stderr.write(`[worker ${songId}] ${chunk}`));
@@ -65,6 +77,7 @@ function runSeparation(job: Job): Promise<void> {
     });
 
     child.on("close", () => {
+      current = null;
       finalize(songId);
       resolve();
     });

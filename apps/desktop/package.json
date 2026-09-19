@@ -1,0 +1,24 @@
+{
+  "name": "@musicapp/desktop",
+  "productName": "Stemify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Split songs into stems and practice along",
+  "author": "Stemify",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "start": "npm run bundle && electron .",
+    "python": "bash scripts/prepare-python.sh",
+    "pack": "npm run bundle && npm run python && electron-builder --mac dir --arm64",
+    "dist": "npm run bundle && npm run python && electron-builder --mac dmg --arm64"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.25.0"
+  }
+}
