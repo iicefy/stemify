@@ -11,7 +11,9 @@
     "start": "npm run bundle && electron .",
     "python": "bash scripts/prepare-python.sh",
     "pack": "npm run bundle && npm run python && electron-builder --mac dir --arm64",
-    "dist": "npm run bundle && npm run python && electron-builder --mac dmg --arm64"
+    "dist": "npm run bundle && npm run python && electron-builder --mac dmg --arm64",
+    "pack:win": "npm run bundle && bash scripts/prepare-python.sh win && electron-builder --win dir --x64",
+    "dist:win": "npm run bundle && bash scripts/prepare-python.sh win && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3"

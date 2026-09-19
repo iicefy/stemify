@@ -42,6 +42,7 @@ network needed, and separation runs on the Apple GPU.
 make app        # run the desktop app from the repo (dev; uses worker/.venv and ./data)
 make app-pack   # build apps/desktop/release/mac-arm64/Stemify.app  (~1 GB)
 make app-dmg    # build the installable apps/desktop/release/Stemify-<version>-arm64.dmg
+make app-win    # build the Windows x64 installer apps/desktop/release/Stemify-Setup-<version>-x64.exe
 make app-import # copy this repo's ./data library into the installed app
 ```
 
@@ -53,3 +54,18 @@ The build is not signed with an Apple Developer ID. It runs fine on the Mac
 that built it; on another Mac, right-click the app and choose **Open** the
 first time (or sign and notarize it with a paid developer account).
 
+
+
+### Windows
+
+`make app-win` cross-builds a Windows x64 installer from the Mac: it fetches a
+Windows Python and installs the Windows wheels. Differences from the Mac app:
+
+- **CPU only.** The bundled PyTorch is the CPU build, so separating a song is
+  much slower than on Apple Silicon (several minutes per song). NVIDIA GPU
+  support would mean swapping in the CUDA build of PyTorch (about 2.5 GB more).
+- **Unsigned.** Windows SmartScreen will warn ("Windows protected your PC");
+  choose *More info* > *Run anyway*.
+- The .exe keeps Electron's icon when built from a Mac (setting it needs
+  Windows or Wine); building on Windows gives the full icon.
+- It was built but **not run on a real Windows machine** yet.

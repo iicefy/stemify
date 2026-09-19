@@ -16,18 +16,20 @@ files:
   - package.json
 
 # Everything the packaged app needs at runtime lives outside app.asar so the
-# Python worker can read it with plain file access.
+# Python worker can read it with plain file access. The Python itself is
+# per-platform (see mac/win below).
 extraResources:
   - from: ../web/dist
     to: web
   - from: ../../worker/separate.py
     to: worker/separate.py
-  - from: build/python
-    to: python
   - from: build/hf-home
     to: hf-home
 
 mac:
+  extraResources:
+    - from: build/python
+      to: python
   category: public.app-category.music
   icon: assets/icon.icns
   target:
@@ -43,3 +45,22 @@ mac:
 
 dmg:
   title: Stemify
+
+win:
+  icon: assets/icon-1024.png
+  extraResources:
+    - from: build/python-win
+      to: python
+  target:
+    - target: nsis
+      arch: x64
+  # Editing the .exe (icon, version info) needs Windows or Wine; building from
+  # a Mac skips it, so the .exe keeps Electron's icon. Building on Windows
+  # gives the full icon.
+  signAndEditExecutable: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Stemify-Setup-${version}-x64.${ext}

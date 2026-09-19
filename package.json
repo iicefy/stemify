@@ -11,7 +11,8 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
     "desktop": "npm run build --workspace=apps/web && npm run start --workspace=apps/desktop",
     "desktop:pack": "npm run build --workspace=apps/web && npm run pack --workspace=apps/desktop",
-    "desktop:dist": "npm run build --workspace=apps/web && npm run dist --workspace=apps/desktop"
+    "desktop:dist": "npm run build --workspace=apps/web && npm run dist --workspace=apps/desktop",
+    "desktop:dist:win": "npm run build --workspace=apps/web && npm run dist:win --workspace=apps/desktop"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

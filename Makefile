@@ -1,4 +1,4 @@
-.PHONY: install worker-setup run build app app-pack app-dmg app-import
+.PHONY: install worker-setup run build app app-pack app-dmg app-win app-import
 
 # Install JS deps and set up the Python separation worker (one-time).
 install: worker-setup
@@ -28,6 +28,11 @@ app-pack:
 # Build the installable .dmg into apps/desktop/release/.
 app-dmg:
 	npm run desktop:dist
+
+# Build the Windows x64 installer into apps/desktop/release/ (cross-built from
+# this Mac; see the README for caveats).
+app-win:
+	npm run desktop:dist:win
 
 # Copy this repo's library (./data) into the installed app's library. The
 # database stores absolute file paths, so they're rewritten to the new

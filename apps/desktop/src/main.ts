@@ -28,7 +28,11 @@ function configureEnvironment(): void {
 
   process.env.STEMIFY_DATA_DIR = path.join(userData, "data");
   process.env.STEMIFY_WEB_DIST = path.join(resources, "web");
-  process.env.STEMIFY_PYTHON = path.join(resources, "python", "bin", "python3");
+  // python-build-standalone lays the interpreter out differently per OS.
+  process.env.STEMIFY_PYTHON =
+    process.platform === "win32"
+      ? path.join(resources, "python", "python.exe")
+      : path.join(resources, "python", "bin", "python3");
   process.env.STEMIFY_WORKER_SCRIPT = path.join(resources, "worker", "separate.py");
   process.env.HF_HOME = hfHome;
   process.env.HF_HUB_OFFLINE = "1"; // the model is bundled; never touch the network
@@ -86,11 +90,14 @@ function createWindow(origin: string): void {
 }
 
 function buildMenu(): void {
+  const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: app.name,
-      submenu: [{ role: "about" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { role: "quit" }],
-    },
+    isMac
+      ? {
+          label: app.name,
+          submenu: [{ role: "about" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { role: "quit" }],
+        }
+      : { label: "File", submenu: [{ role: "quit" }] },
     { role: "editMenu" },
     {
       label: "View",

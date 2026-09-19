@@ -17,5 +17,7 @@ export const DB_PATH = path.join(DATA_DIR, "db.sqlite");
 export const WEB_DIST_DIR = process.env.STEMIFY_WEB_DIST ?? path.join(REPO_ROOT, "apps", "web", "dist");
 
 export const WORKER_DIR = path.join(REPO_ROOT, "worker");
-export const WORKER_PYTHON = process.env.STEMIFY_PYTHON ?? path.join(WORKER_DIR, ".venv", "bin", "python");
+const VENV_PYTHON =
+  process.platform === "win32" ? path.join(".venv", "Scripts", "python.exe") : path.join(".venv", "bin", "python");
+export const WORKER_PYTHON = process.env.STEMIFY_PYTHON ?? path.join(WORKER_DIR, VENV_PYTHON);
 export const WORKER_SCRIPT = process.env.STEMIFY_WORKER_SCRIPT ?? path.join(WORKER_DIR, "separate.py");

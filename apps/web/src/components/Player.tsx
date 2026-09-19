@@ -147,8 +147,11 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
         const pxPerSecond = width / (currentViewDuration || 1);
         // A raw 1:1 mapping panned across the entire visible window in
         // just a couple centimeters of trackpad travel - this scales it
-        // down to something more controllable.
-        pendingPan += (e.deltaX / pxPerSecond) * PAN_SENSITIVITY;
+        // down to something more controllable. The screen-space speed is
+        // otherwise identical at every zoom, which crawls once zoomed in,
+        // so it speeds up with zoom (sqrt keeps low zoom levels unchanged-ish).
+        const zoomBoost = Math.sqrt(ZOOM_LEVELS[viewRef.current.zoomIndex]);
+        pendingPan += (e.deltaX / pxPerSecond) * PAN_SENSITIVITY * zoomBoost;
       } else {
         return;
       }
