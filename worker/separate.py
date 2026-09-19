@@ -31,16 +31,31 @@ def decode_to_wav(input_path: str, wav_path: Path) -> None:
     import av
 
     resampler = av.AudioResampler(format="s16", layout="stereo", rate=44100)
+    written = 0
     with av.open(input_path) as container, wave.open(str(wav_path), "wb") as out:
         out.setnchannels(2)
         out.setsampwidth(2)
         out.setframerate(44100)
         stream = container.streams.audio[0]
+
+        def write(frame) -> None:
+            nonlocal written
+            # A frame's raw plane buffer is padded for alignment; writing it
+            # as-is inserts garbage every frame (constant crackling and a
+            # longer file). to_ndarray() holds only the real samples.
+            samples = frame.to_ndarray().astype("<i2", copy=False).reshape(-1)[: frame.samples * 2]
+            out.writeframes(samples.tobytes())
+            written += frame.samples
+
         for frame in container.decode(stream):
             for resampled in resampler.resample(frame):
-                out.writeframes(bytes(resampled.planes[0]))
+                write(resampled)
         for resampled in resampler.resample(None):
-            out.writeframes(bytes(resampled.planes[0]))
+            write(resampled)
+
+        expected = (container.duration or 0) / 1_000_000 * 44100
+        if expected and abs(written - expected) > 44100:
+            raise RuntimeError(f"Decoded {written / 44100:.1f}s but the file is {expected / 44100:.1f}s long")
 
 
 def separate_with_fallback(separator, input_path: str, out_dir: Path):
