@@ -1,7 +1,7 @@
 {
   "name": "@musicapp/desktop",
   "productName": "Stemify",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Split songs into stems and practice along",
   "author": "Stemify",
