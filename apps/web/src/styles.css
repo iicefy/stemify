@@ -55,7 +55,17 @@ input {
 }
 
 .app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   margin-bottom: 1.75rem;
+}
+
+.app-logo {
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
 }
 
 .app-header h1 {

@@ -13,6 +13,7 @@ export default function App() {
       ) : (
         <div className="app">
           <header className="app-header">
+            <img className="app-logo" src="/icon.png" alt="" width={40} height={40} />
             <h1>Stemify</h1>
           </header>
           <Library onSelectSong={setSelectedSongId} />
