@@ -71,6 +71,37 @@ first time (or sign and notarize it with a paid developer account).
 
 
 
+### Updates
+
+Installed apps update themselves, like Discord. On launch the app checks the
+latest GitHub release; if there is a newer version it shows a short "Updating…"
+screen, installs it, and reopens on the new version. A quiet check also runs a
+minute after launch and every few hours, and asks "Restart now / Later" (never
+while a song is being separated). **Stemify > Check for Updates…** checks on
+demand. Your songs live outside the app and are never touched. If the check or
+download fails, or you're offline, the app just opens normally.
+
+- **Windows** uses `electron-updater` (downloads only the changed blocks).
+- **Mac** builds aren't signed, so the standard updater can't be used. Instead
+  the app downloads a small "code only" package (about 1 MB: the app code, web
+  build and worker script), verifies its SHA-512, and swaps it into the app
+  bundle when it quits, keeping a backup and restoring it if anything fails.
+  The bundled Python, PyTorch and model stay as they are.
+- If a release changes something the small package can't (Electron, Python or
+  its packages), Mac apps are asked to download the new installer instead.
+
+To publish a version (bumps it, builds Mac + Windows, uploads everything the
+updaters need, and creates the GitHub release):
+
+```bash
+make release VERSION=0.5.0 NOTES=notes.md   # NOTES is optional
+```
+
+Update files uploaded with each release: `update.json` + `*-mac-arm64-update.zip`
+(Mac) and `latest.yml` + the `.exe` + its `.blockmap` (Windows). Test against a
+local folder with `STEMIFY_UPDATE_URL=http://127.0.0.1:8765 Stemify` (and
+`update.log` in the app's data folder records what happened).
+
 ### Windows
 
 `make app-win` cross-builds a Windows x64 installer from the Mac: it fetches a

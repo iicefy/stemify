@@ -2,10 +2,12 @@ import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Server } from "node:http";
+import { createSplash, manualCheckForUpdates, runStartupUpdate, startBackgroundUpdates } from "./updater.js";
 
 let server: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
 let stopSeparation: () => void = () => {};
+let isSeparating: () => boolean = () => false;
 
 /**
  * Points the API server at the right places *before* it is imported (its
@@ -42,6 +44,7 @@ async function startBackend(): Promise<string> {
   const api = await import("../../api/src/server.js");
   const separation = await import("../../api/src/separation.js");
   stopSeparation = separation.stopSeparation;
+  isSeparating = separation.isSeparating;
   // Loopback only, on a free port: the app is a private, single-user tool.
   const started = await api.startServer({ port: 0, host: "127.0.0.1" });
   server = started.server;
@@ -91,13 +94,17 @@ function createWindow(origin: string): void {
 
 function buildMenu(): void {
   const isMac = process.platform === "darwin";
+  const checkForUpdates: Electron.MenuItemConstructorOptions = {
+    label: "Check for Updates…",
+    click: () => void manualCheckForUpdates(() => mainWindow, () => isSeparating()),
+  };
   const template: Electron.MenuItemConstructorOptions[] = [
     isMac
       ? {
           label: app.name,
-          submenu: [{ role: "about" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { role: "quit" }],
+          submenu: [{ role: "about" }, checkForUpdates, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { type: "separator" }, { role: "quit" }],
         }
-      : { label: "File", submenu: [{ role: "quit" }] },
+      : { label: "File", submenu: [checkForUpdates, { type: "separator" }, { role: "quit" }] },
     { role: "editMenu" },
     {
       label: "View",
@@ -121,9 +128,21 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     try {
       configureEnvironment();
-      const origin = await startBackend();
+
+      // Like Discord: check for a newer version first, and if there is one,
+      // install it and restart before the main window ever opens. The backend
+      // starts in parallel so a normal launch isn't slowed down.
+      const splash = createSplash();
+      const backend = startBackend();
+      backend.catch(() => {}); // surfaced below; avoids an unhandled rejection while updating
+
+      if ((await runStartupUpdate(splash)) === "installing") return; // the app is quitting
+
+      const origin = await backend;
       buildMenu();
       createWindow(origin);
+      splash.close();
+      startBackgroundUpdates(() => mainWindow, () => isSeparating());
     } catch (err) {
       dialog.showErrorBox("Stemify could not start", err instanceof Error ? (err.stack ?? err.message) : String(err));
       app.quit();

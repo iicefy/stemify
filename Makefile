@@ -1,4 +1,4 @@
-.PHONY: install worker-setup run build app app-pack app-dmg app-win app-import
+.PHONY: install worker-setup run build app app-pack app-dmg app-win app-import release
 
 # Install JS deps and set up the Python separation worker (one-time).
 install: worker-setup
@@ -45,3 +45,10 @@ app-import:
 	sqlite3 data/db.sqlite ".backup '$(APP_DATA)/db.sqlite'"
 	sqlite3 "$(APP_DATA)/db.sqlite" "UPDATE songs SET original_path = replace(original_path, '$(CURDIR)/data', '$(APP_DATA)'); UPDATE stems SET file_path = replace(file_path, '$(CURDIR)/data', '$(APP_DATA)');"
 	@echo "Imported. Open Stemify to see your songs."
+
+# Publish a new version: bumps it, builds Mac + Windows, and creates the GitHub
+# release with the files installed apps use to update themselves.
+#   make release VERSION=0.5.0 [NOTES=notes.md]
+release:
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=0.5.0 [NOTES=notes.md]"; exit 1; }
+	bash apps/desktop/scripts/release.sh $(VERSION) $(NOTES)

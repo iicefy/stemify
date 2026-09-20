@@ -29,6 +29,11 @@ let running = false;
 let current: ChildProcess | null = null;
 let currentSongId: string | null = null;
 
+/** True while a song is being separated or is waiting in line. */
+export function isSeparating(): boolean {
+  return running || queue.length > 0;
+}
+
 /** Forget a song's queued job, or stop it if it's the one running (its song was deleted). */
 export function cancelSeparation(songId: string): void {
   const queued = queue.findIndex((job) => job.songId === songId);

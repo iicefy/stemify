@@ -9,7 +9,7 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  external: ["electron", "better-sqlite3"],
+  external: ["electron", "electron-updater", "better-sqlite3"],
   // Bundled CommonJS dependencies (express, multer...) call require() for
   // Node built-ins, which doesn't exist in an ES module by default.
   banner: {

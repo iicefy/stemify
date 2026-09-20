@@ -25,6 +25,15 @@ extraResources:
     to: worker/separate.py
   - from: build/hf-home
     to: hf-home
+  - from: build/base.json
+    to: base.json
+
+# Where installed apps look for updates (the Windows updater reads latest.yml
+# from here; the Mac updater reads update.json - see scripts/make-update.mjs).
+publish:
+  provider: generic
+  url: https://github.com/iicefy/stemify/releases/latest/download
+  updaterCacheDirName: stemify-updater
 
 mac:
   extraResources:
