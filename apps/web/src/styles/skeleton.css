@@ -1,0 +1,22 @@
+/* Shared loading-placeholder shimmer. Must load after library.css and before
+   player.css: the .song-avatar placeholder relies on these rules winning, the
+   player's placeholders on overriding them. */
+
+/* --- Loading skeleton --- */
+
+.skeleton {
+  display: block;
+  background: var(--surface-2);
+  border-radius: 6px;
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+.skeleton-line-short {
+  width: 30%;
+  height: 9px;
+  margin-top: 0.35rem;
+}

@@ -1,4 +1,4 @@
-import mixerWorkletUrl from "./mixer.worklet.ts?worker&url";
+import mixerWorkletUrl from "./worklet/mixer.worklet.ts?worker&url";
 import { decodeToPcm16, parseWav16, type Pcm16 } from "./wav";
 import { computePeakPyramid, type PeakPyramid } from "./waveform";
 import type { LoopFrames, MixerCommand, MixerEvent } from "./mixerProtocol";

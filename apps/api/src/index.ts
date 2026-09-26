@@ -5,4 +5,4 @@
  * Run standalone with src/main.ts.
  */
 export { startServer } from "./server.js";
-export { isSeparating, stopSeparation } from "./separation.js";
+export { isSeparating, stopSeparation } from "./separation/queue.js";

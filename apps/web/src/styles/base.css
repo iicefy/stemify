@@ -1,0 +1,49 @@
+/* Design tokens (colors, radii, fonts) and page-wide resets. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+
+  --track-header-width: 190px;
+  --daw-topbar-height: 58px;
+
+  /* Minimal, mostly-neutral palette. One accent (primary blue) carries
+     every "active/selected/primary" state; red is reserved for mute only.
+     Track identity colors live separately in trackColors.ts, kept muted
+     so they read as one cohesive set rather than competing with the UI
+     chrome. */
+  --bg: #0b0b0c;
+  --surface: #151517;
+  --surface-2: #1c1c1f;
+  --border: #26262a;
+  --text: #f0f0f1;
+  --text-dim: #86868c;
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-contrast: #ffffff;
+  --danger: #e2554f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font-family: inherit;
+}

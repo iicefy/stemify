@@ -1,0 +1,109 @@
+/* Shared buttons and inputs, plus consistent focus rings. Loaded after the
+   page styles so these states win. */
+
+/* --- Shared controls --- */
+
+:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible {
+  outline-offset: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 38px;
+  padding: 0 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.btn:disabled {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: #38383d;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ec6a64;
+}
+
+.btn-small {
+  height: 28px;
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn-small:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-dim);
+}
+
+.icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.icon-btn:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+
+.icon-btn-danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.dropzone:focus-visible {
+  border-color: var(--accent);
+}

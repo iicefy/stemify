@@ -4,10 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { songsRouter } from "./routes/songs.js";
-import { WEB_DIST_DIR } from "./paths.js";
-import { errorHandler, HttpError } from "./http.js";
-import { failInterruptedSongs } from "./songRepository.js";
+import { songsRouter } from "./http/songsRouter.js";
+import { WEB_DIST_DIR } from "./infra/paths.js";
+import { errorHandler, HttpError } from "./http/errors.js";
+import { failInterruptedSongs } from "./db/songRepository.js";
 
 export function createApp() {
   const app = express();

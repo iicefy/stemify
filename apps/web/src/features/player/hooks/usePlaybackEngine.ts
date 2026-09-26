@@ -3,7 +3,7 @@ import { PlaybackEngine } from "../../../audio/PlaybackEngine";
 import type { PeakPyramid } from "../../../audio/waveform";
 import { stemUrl, type LoopRegion, type SongSettings, type Stem, type TrackMix } from "../../../api";
 import { clamp } from "../../../lib/math";
-import { restoreSettings, type PlayerSettings } from "../songSettings";
+import { restoreSettings, type PlayerSettings } from "../lib/songSettings";
 import { useSettingsAutosave } from "./useSettingsAutosave";
 
 export type { LoopRegion } from "../../../api";

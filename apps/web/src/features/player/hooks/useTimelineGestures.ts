@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { clamp } from "../../../lib/math";
-import { viewDurationAt, ZOOM_LEVELS } from "../zoom";
+import { viewDurationAt, ZOOM_LEVELS } from "../lib/zoom";
 
 // Trackpad two-finger-scroll pan feels frantic at a literal 1:1 pixel
 // mapping - this tones it down to a more deliberate speed.

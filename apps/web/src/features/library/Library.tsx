@@ -4,16 +4,16 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { UploadIcon } from "../../components/icons";
 import { useToast } from "../../components/ToastProvider";
 import { errorText } from "../../lib/errors";
-import { Dropzone } from "./Dropzone";
-import { EmptyState } from "./EmptyState";
-import { LibrarySkeleton } from "./LibrarySkeleton";
-import { filterAndSortSongs, loadSort, saveSort, SORT_KEYS, SORT_LABELS, type SortKey } from "./librarySort";
-import { SongRow } from "./SongRow";
-import { isBusy } from "./songStatus";
-import { useSongs } from "./useSongs";
-import { useUploads } from "./useUploads";
-import { useWindowFileDrop } from "./useWindowFileDrop";
-import { YoutubeForm } from "./YoutubeForm";
+import { Dropzone } from "./components/Dropzone";
+import { EmptyState } from "./components/EmptyState";
+import { LibrarySkeleton } from "./components/LibrarySkeleton";
+import { filterAndSortSongs, loadSort, saveSort, SORT_KEYS, SORT_LABELS, type SortKey } from "./lib/librarySort";
+import { SongRow } from "./components/SongRow";
+import { isBusy } from "./lib/songStatus";
+import { useSongs } from "./hooks/useSongs";
+import { useUploads } from "./hooks/useUploads";
+import { useWindowFileDrop } from "./hooks/useWindowFileDrop";
+import { YoutubeForm } from "./components/YoutubeForm";
 
 function deleteMessage(song: Song): string {
   if (isBusy(song)) {

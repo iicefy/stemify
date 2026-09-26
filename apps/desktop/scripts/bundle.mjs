@@ -1,8 +1,12 @@
 // Bundles the Electron main process together with the API server into one
 // file. `electron` and the native SQLite module stay external.
 import { build } from "esbuild";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 await build({
+  // Paths below are relative to apps/desktop, wherever this is run from.
+  absWorkingDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
   entryPoints: ["src/main.ts"],
   outfile: "dist/main.mjs",
   bundle: true,

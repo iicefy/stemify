@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { saveSongSettings, type SongSettings, type Stem } from "../../../api";
-import { toSongSettings, type PlayerSettings } from "../songSettings";
+import { toSongSettings, type PlayerSettings } from "../lib/songSettings";
 
 // How long to wait after the last change before saving, so dragging a slider
 // doesn't fire a request per pixel.

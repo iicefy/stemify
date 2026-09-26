@@ -5,17 +5,17 @@ import { usePlaybackEngine } from "./hooks/usePlaybackEngine";
 import { usePlayerShortcuts } from "./hooks/usePlayerShortcuts";
 import { useTimelineGestures } from "./hooks/useTimelineGestures";
 import { useFollowPlayhead, useTimelineView } from "./hooks/useTimelineView";
-import { LoopToggle } from "./LoopToggle";
-import { MasterVolume } from "./MasterVolume";
-import { TimelineSkeleton, TitleSkeleton, ToolbarSkeleton, TransportSkeleton } from "./PlayerSkeleton";
-import { SpeedControl } from "./SpeedControl";
-import { TimelineOverlay, type TimelineOverlayHandle } from "./TimelineOverlay";
-import { TimelineRuler } from "./TimelineRuler";
-import { trackColor } from "./trackColors";
-import { TrackLane } from "./TrackLane";
-import { Transport } from "./Transport";
-import { ZoomControl } from "./ZoomControl";
-import { ZoomScrollbar } from "./ZoomScrollbar";
+import { LoopToggle } from "./components/toolbar/LoopToggle";
+import { MasterVolume } from "./components/toolbar/MasterVolume";
+import { TimelineSkeleton, TitleSkeleton, ToolbarSkeleton, TransportSkeleton } from "./components/PlayerSkeleton";
+import { SpeedControl } from "./components/toolbar/SpeedControl";
+import { TimelineOverlay, type TimelineOverlayHandle } from "./components/timeline/TimelineOverlay";
+import { TimelineRuler } from "./components/timeline/TimelineRuler";
+import { trackColor } from "./lib/trackColors";
+import { TrackLane } from "./components/timeline/TrackLane";
+import { Transport } from "./components/toolbar/Transport";
+import { ZoomControl } from "./components/toolbar/ZoomControl";
+import { ZoomScrollbar } from "./components/timeline/ZoomScrollbar";
 
 const NO_STEMS: SongDetail["stems"] = [];
 

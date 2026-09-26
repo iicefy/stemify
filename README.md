@@ -37,30 +37,47 @@ Vitest unit tests). `make release` runs it too and stops if anything fails.
 ## Project layout
 
 ```
-packages/shared/     API <-> web contract: JSON types, live events, upload/title limits
+packages/shared/src/        API <-> web contract (one file per topic)
+  song.ts settings.ts events.ts uploads.ts
+
 apps/api/src/
-  index.ts           public entry (the desktop app imports @musicapp/api); main.ts runs it standalone
-  server.ts          Express app + JSON error handling (http.ts)
-  routes/songs.ts    HTTP endpoints only - no SQL here; GET /events is the live stream
-  songRepository.ts  every database query; writes notify clients (events.ts)
-  db.ts              connection, schema, column migrations
-  separation.ts      the one-at-a-time Demucs job queue
-  workerProtocol.ts  the documented contract with worker/separate.py
-  youtube*.ts, ytdlp.ts  YouTube import
-  server.test.ts     HTTP tests: real server + DB in a temp folder, fake worker
+  index.ts                  public entry - the desktop app imports @musicapp/api
+  main.ts                   run standalone (npm run dev:api)
+  server.ts                 Express app assembly
+  http/                     songsRouter.ts (endpoints only, no SQL), errors.ts
+  db/                       database.ts (schema), songRepository.ts (every query)
+  separation/               queue.ts (Demucs jobs), workerProtocol.ts (the worker contract)
+  youtube/                  importer.ts, url.ts, ytdlp.ts
+  infra/                    paths.ts, storage.ts (files), events.ts (live updates)
+
 apps/web/src/
-  api.ts             typed client for the API (incl. the live event stream)
-  router.ts          hash routes: #/ library, #/song/<id> player
-  audio/             playback engine + AudioWorklet mixer (no React)
-  features/library/  song list page: components + hooks
-  features/player/   DAW player: components, hooks/, pure logic (zoom, settings)
-  components/        shared UI (dialogs, toasts, icons)
-  lib/               small pure helpers
+  main.tsx App.tsx router.ts
+  api/                      the only code that talks to the server
+  audio/                    playback engine; worklet/ runs on the audio thread
+  features/
+    library/                Library.tsx + components/ hooks/ lib/
+    player/                 Player.tsx + components/{toolbar,timeline}/ hooks/ lib/
+  components/               shared UI (dialog, toasts, icons)
+  lib/                      shared pure helpers
+  styles/                   one file per area; index.css sets the cascade order
+  types/                    declarations for untyped packages
+
 apps/desktop/src/
-  main.ts            Electron entry: starts the API, opens the window
-  updater/           in-app updates (mac.ts, windows.ts, apply-update.sh)
-worker/separate.py   Demucs separation, run by the API as a subprocess
+  main.ts                   app lifecycle only
+  app/                      environment, backend, main window, menu
+  updater/                  in-app updates (mac.ts, windows.ts, apply-update.sh)
+
+worker/separate.py          Demucs separation, run by the API as a subprocess
 ```
+
+Where things go:
+
+- A feature's entry component (`Library.tsx`, `Player.tsx`) sits at the top
+  of its folder. Inside it, `components/` holds React components, `hooks/`
+  React hooks, and `lib/` pure TypeScript with no React or DOM, each with a
+  `*.test.ts` next to it.
+- Code used by more than one feature moves up to `src/components` or `src/lib`.
+- In the API, only `db/` runs SQL and only `http/` knows about requests.
 
 The library updates live: the API pushes Server-Sent Events whenever a song
 is added, changes status or is removed, plus separation progress, which the

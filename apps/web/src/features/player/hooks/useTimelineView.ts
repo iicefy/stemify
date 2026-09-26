@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clampViewStart, viewDurationAt, zoomView, ZOOM_LEVELS, type TimelineView } from "../zoom";
+import { clampViewStart, viewDurationAt, zoomView, ZOOM_LEVELS, type TimelineView } from "../lib/zoom";
 import type { SubscribeTime } from "./usePlaybackEngine";
 
 const INITIAL_VIEW: TimelineView = { zoomIndex: 0, viewStart: 0 };
