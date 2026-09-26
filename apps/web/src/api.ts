@@ -42,7 +42,15 @@ export async function listSongs(): Promise<Song[]> {
 export async function getSong(id: string): Promise<SongDetail> {
   const res = await fetch(`${BASE}/${id}`);
   if (!res.ok) throw new Error("Failed to load song");
-  return res.json();
+  const detail: SongDetail = await res.json();
+  return { ...detail, stems: sortStems(detail.stems) };
+}
+
+// "other" is Demucs's catch-all bucket, so it reads better at the bottom of
+// the track list than wherever separation happens to emit it - everything
+// else keeps the order the API returns (a stable sort only moves "other").
+function sortStems(stems: Stem[]): Stem[] {
+  return [...stems].sort((a, b) => Number(a.name === "other") - Number(b.name === "other"));
 }
 
 export async function uploadSong(file: File): Promise<Song> {
