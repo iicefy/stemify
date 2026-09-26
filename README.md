@@ -31,6 +31,36 @@ worker venv steps in [worker/README.md](worker/README.md), then `npm run dev`.
 
 Uploaded files and generated stems are stored in `data/` (gitignored).
 
+Before committing, run `make check` (typecheck every workspace, ESLint, and the
+Vitest unit tests). `make release` runs it too and stops if anything fails.
+
+## Project layout
+
+```
+packages/shared/     API <-> web contract: JSON types, upload/title limits
+apps/api/src/
+  server.ts          Express app + JSON error handling (http.ts)
+  routes/songs.ts    HTTP endpoints only - no SQL here
+  songRepository.ts  every database query
+  db.ts              connection, schema, column migrations
+  separation.ts      the one-at-a-time Demucs job queue
+  youtube*.ts, ytdlp.ts  YouTube import
+apps/web/src/
+  api.ts             typed client for the API
+  audio/             playback engine + AudioWorklet mixer (no React)
+  features/library/  song list page: components + hooks
+  features/player/   DAW player: components, hooks/, pure logic (zoom, settings)
+  components/        shared UI (dialogs, toasts, icons)
+  lib/               small pure helpers
+apps/desktop/src/
+  main.ts            Electron entry: starts the API, opens the window
+  updater/           in-app updates (mac.ts, windows.ts, apply-update.sh)
+worker/separate.py   Demucs separation, run by the API as a subprocess
+```
+
+Pure logic lives in plain `.ts` modules next to the code that uses it, with a
+`*.test.ts` beside it; components and hooks stay thin wrappers around it.
+
 ## Adding songs from YouTube
 
 Paste a YouTube link into the box under the upload area and press **Add**. The

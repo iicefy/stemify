@@ -21,6 +21,9 @@ git fetch origin main -q
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "main isn't in sync with origin/main - pull/push first" >&2; exit 1; }
 gh release view "v$VERSION" >/dev/null 2>&1 && { echo "v$VERSION already exists" >&2; exit 1; }
 
+echo "== Checking (typecheck, lint, tests)"
+npm run check
+
 echo "== Releasing $VERSION"
 node -e "const f='apps/desktop/package.json',p=require('./'+f);p.version='$VERSION';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 

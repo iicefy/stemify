@@ -1,33 +1,25 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { db } from "./db.js";
 import { STEMS_DIR, WORKER_PYTHON, WORKER_SCRIPT } from "./paths.js";
+import { completeSeparation, markSongFailed, songExists } from "./songRepository.js";
+import { removeStems, stemsDirFor } from "./storage.js";
 
 interface Job {
   songId: string;
   inputPath: string;
 }
 
+/** What worker/separate.py writes to <stems dir>/<song id>/manifest.json. */
 interface Manifest {
   status: "done" | "failed";
-  stems?: Record<string, string>;
+  stems?: Record<string, string>; // stem name -> file name
   error?: string;
 }
 
-const markFailed = db.prepare(
-  "UPDATE songs SET status = 'failed', error_message = ? WHERE id = ?"
-);
-const markReady = db.prepare("UPDATE songs SET status = 'ready' WHERE id = ?");
-const insertStem = db.prepare(
-  "INSERT INTO stems (id, song_id, name, file_path) VALUES (?, ?, ?, ?)"
-);
-
 const queue: Job[] = [];
 let running = false;
-let current: ChildProcess | null = null;
-let currentSongId: string | null = null;
+let current: { songId: string; child: ChildProcess } | null = null;
 
 /** True while a song is being separated or is waiting in line. */
 export function isSeparating(): boolean {
@@ -38,13 +30,13 @@ export function isSeparating(): boolean {
 export function cancelSeparation(songId: string): void {
   const queued = queue.findIndex((job) => job.songId === songId);
   if (queued !== -1) queue.splice(queued, 1);
-  if (currentSongId === songId) current?.kill();
+  if (current?.songId === songId) current.child.kill();
 }
 
 /** Stop the running separation and drop queued jobs (used when the app quits). */
 export function stopSeparation(): void {
   queue.length = 0;
-  current?.kill();
+  current?.child.kill();
 }
 
 export function enqueueSeparation(songId: string, inputPath: string): void {
@@ -68,66 +60,61 @@ async function processQueue(): Promise<void> {
   }
 }
 
-function runSeparation(job: Job): Promise<void> {
-  const { songId, inputPath } = job;
-
+function runSeparation({ songId, inputPath }: Job): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(WORKER_PYTHON, [WORKER_SCRIPT, inputPath, songId, STEMS_DIR], {
       // Keep the interpreter from writing .pyc files or reading user
       // site-packages - matters for a read-only bundled app.
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONNOUSERSITE: "1" },
     });
-    current = child;
-    currentSongId = songId;
+    current = { songId, child };
 
     child.stdout.on("data", (chunk) => process.stdout.write(`[worker ${songId}] ${chunk}`));
     child.stderr.on("data", (chunk) => process.stderr.write(`[worker ${songId}] ${chunk}`));
 
+    let failedToStart = false;
     child.on("error", (err) => {
       // e.g. worker/.venv doesn't exist yet - surface a clear message
       // instead of leaving the song stuck at "processing" forever.
-      markFailed.run(`Failed to start separation worker: ${err.message}`, songId);
+      failedToStart = true;
+      markSongFailed(songId, `Failed to start separation worker: ${err.message}`);
       resolve();
     });
 
     child.on("close", () => {
       current = null;
-      currentSongId = null;
-      finalize(songId);
+      // "close" can follow "error"; don't bury that clearer message under
+      // a generic "no manifest" one.
+      if (!failedToStart) finalize(songId);
       resolve();
     });
   });
 }
 
+function readManifest(dir: string): Manifest | null {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf-8")) as Manifest;
+  } catch {
+    return null; // missing/unreadable counts as a failure
+  }
+}
+
 function finalize(songId: string): void {
   // The song may have been deleted while it was being separated.
-  if (!db.prepare("SELECT 1 FROM songs WHERE id = ?").get(songId)) {
-    fs.rm(path.join(STEMS_DIR, songId), { recursive: true, force: true }, () => {});
+  if (!songExists(songId)) {
+    removeStems(songId);
     return;
   }
 
-  const songStemsDir = path.join(STEMS_DIR, songId);
-  const manifestPath = path.join(songStemsDir, "manifest.json");
-
-  let manifest: Manifest | null = null;
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-  } catch {
-    // Missing/unreadable manifest is treated as failure below.
-  }
-
-  if (!manifest || manifest.status !== "done" || !manifest.stems) {
-    const message = manifest?.error ?? "Separation failed (no manifest produced)";
-    markFailed.run(message, songId);
+  const dir = stemsDirFor(songId);
+  const manifest = readManifest(dir);
+  if (manifest?.status !== "done" || !manifest.stems) {
+    markSongFailed(songId, manifest?.error ?? "Separation failed (no manifest produced)");
     return;
   }
 
-  const insertAll = db.transaction((stems: Record<string, string>) => {
-    for (const [name, filename] of Object.entries(stems)) {
-      insertStem.run(randomUUID(), songId, name, path.join(songStemsDir, filename));
-    }
-    markReady.run(songId);
-  });
-
-  insertAll(manifest.stems);
+  completeSeparation(
+    songId,
+    Object.entries(manifest.stems).map(([name, file]) => ({ name, filePath: path.join(dir, file) }))
+  );
 }

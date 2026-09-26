@@ -9,6 +9,7 @@
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
     "start": "npm run bundle && electron .",
+    "typecheck": "tsc --noEmit",
     "python": "bash scripts/prepare-python.sh",
     "pack": "npm run bundle && npm run python && node scripts/base-id.mjs && electron-builder --mac dir --arm64",
     "dist": "npm run bundle && npm run python && node scripts/base-id.mjs && electron-builder --mac dmg --arm64",

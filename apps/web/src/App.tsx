@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Library } from "./components/Library";
-import { Player } from "./components/Player";
+import { Library } from "./features/library/Library";
+import { Player } from "./features/player/Player";
 import { ToastProvider } from "./components/ToastProvider";
 
 export default function App() {

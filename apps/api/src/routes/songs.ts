@@ -1,125 +1,107 @@
-import { Router } from "express";
+import express, { Router, type Request } from "express";
 import multer from "multer";
-import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { db, type SongRow, type StemRow } from "../db.js";
-import { UPLOADS_DIR, STEMS_DIR } from "../paths.js";
+import { AUDIO_EXTENSIONS, MAX_TITLE_LENGTH, isAudioFileName, type SongDetail, type SongSettings } from "@musicapp/shared";
+import { UPLOADS_DIR } from "../paths.js";
+import { HttpError } from "../http.js";
 import { cancelSeparation, enqueueSeparation } from "../separation.js";
-import { insertPendingSong, newSongId, parseYoutubeUrl, startYoutubeImport } from "../youtube.js";
+import * as songs from "../songRepository.js";
+import { removeFile, removeStems } from "../storage.js";
+import { startYoutubeImport } from "../youtube.js";
+import { parseYoutubeUrl } from "../youtubeUrl.js";
 
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${randomUUID()}${ext}`);
-    },
+    filename: (_req, file, cb) => cb(null, `${randomUUID()}${path.extname(file.originalname)}`),
   }),
   limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
   fileFilter: (_req, file, cb) => {
-    const allowed = [".mp3", ".wav", ".flac", ".m4a", ".ogg"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (!allowed.includes(ext)) {
-      cb(new Error(`Unsupported file type: ${ext}`));
-      return;
-    }
-    cb(null, true);
+    if (isAudioFileName(file.originalname)) cb(null, true);
+    else cb(new HttpError(400, `Unsupported file type - use ${AUDIO_EXTENSIONS.join(", ")}`));
   },
 });
 
+const smallJson = express.json({ limit: "10kb" });
+
+function requireSong(req: Request<{ id: string }>): songs.SongRow {
+  const song = songs.getSong(req.params.id);
+  if (!song) throw new HttpError(404, "Song not found");
+  return song;
+}
+
 export const songsRouter = Router();
 
-// Prepared once at load - better-sqlite3 statements are meant to be reused,
-// and re-preparing on every request re-parses the SQL each time.
-const insertSong = db.prepare(
-  `INSERT INTO songs (id, title, original_path, status, created_at)
-   VALUES (?, ?, ?, 'processing', ?)`
-);
-const listSongs = db.prepare(
-  "SELECT id, title, status, error_message, created_at FROM songs ORDER BY created_at DESC"
-);
-const getSong = db.prepare("SELECT * FROM songs WHERE id = ?");
-const listStems = db.prepare("SELECT id, name FROM stems WHERE song_id = ?");
-const deleteSong = db.prepare("DELETE FROM songs WHERE id = ?");
-const renameSong = db.prepare("UPDATE songs SET title = ? WHERE id = ?");
-const setStatus = db.prepare("UPDATE songs SET status = ?, error_message = NULL WHERE id = ?");
-const getStem = db.prepare("SELECT file_path FROM stems WHERE id = ? AND song_id = ?");
-const saveSettings = db.prepare("UPDATE songs SET settings = ? WHERE id = ?");
+songsRouter.get("/", (_req, res) => {
+  res.json(songs.listSongs());
+});
 
 songsRouter.post("/", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: "No file uploaded" });
-    return;
-  }
+  if (!req.file) throw new HttpError(400, "No file uploaded");
 
-  const id = randomUUID();
   // multer/busboy decode multipart headers as latin1, so a UTF-8 filename
   // (e.g. Thai song titles) arrives mis-decoded unless converted back.
   const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
-  const title = path.parse(originalName).name;
-  const createdAt = new Date().toISOString();
+  const song = songs.createSong({
+    title: path.parse(originalName).name.slice(0, MAX_TITLE_LENGTH),
+    status: "processing",
+    originalPath: req.file.path,
+  });
+  enqueueSeparation(song.id, req.file.path);
 
-  insertSong.run(id, title, req.file.path, createdAt);
-
-  enqueueSeparation(id, req.file.path);
-
-  res.status(201).json({ id, title, status: "processing" });
+  res.status(201).json(song);
 });
 
-songsRouter.post("/youtube", express.json({ limit: "10kb" }), (req, res) => {
+songsRouter.post("/youtube", smallJson, (req, res) => {
   const url = parseYoutubeUrl(req.body?.url);
-  if (!url) {
-    res.status(400).json({ error: "Enter a valid YouTube link" });
-    return;
-  }
+  if (!url) throw new HttpError(400, "Enter a valid YouTube link");
 
-  const id = newSongId();
   // The link stands in as the title until the download reports the real one.
-  insertPendingSong.run(id, url.href, new Date().toISOString(), url.href);
-  void startYoutubeImport(id, url);
+  const song = songs.createSong({ title: url.href, status: "downloading", sourceUrl: url.href });
+  void startYoutubeImport(song.id, url);
 
-  res.status(201).json({ id, title: url.href, status: "downloading" });
-});
-
-songsRouter.get("/", (_req, res) => {
-  const songs = listSongs.all() as SongSummary[];
-  res.json(songs.map(toSongDto));
+  res.status(201).json(song);
 });
 
 songsRouter.get("/:id", (req, res) => {
-  const song = getSong.get(req.params.id) as SongRow | undefined;
-
-  if (!song) {
-    res.status(404).json({ error: "Song not found" });
-    return;
-  }
-
+  const song = requireSong(req);
   res.json({
-    ...toSongDto(song),
-    stems: listStems.all(song.id),
-    // Opaque to this layer - the player reads/writes its own shape (mix,
-    // speed, loop). Malformed JSON from a hand-edited DB shouldn't break
-    // loading the song, just come back as "no saved settings".
-    settings: parseSettings(song.settings),
-  });
+    ...songs.toSongDto(song),
+    stems: songs.listStems(song.id),
+    // Opaque to the API; the player validates it before using any of it.
+    settings: songs.parseSongSettings(song.settings) as SongSettings | null,
+  } satisfies SongDetail);
+});
+
+songsRouter.patch("/:id", smallJson, (req, res) => {
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  if (title.length === 0 || title.length > MAX_TITLE_LENGTH) {
+    throw new HttpError(400, `Title must be 1-${MAX_TITLE_LENGTH} characters`);
+  }
+  if (!songs.renameSong(req.params.id, title)) throw new HttpError(404, "Song not found");
+
+  res.json({ id: req.params.id, title });
+});
+
+songsRouter.put("/:id/settings", express.json({ limit: "20kb" }), (req, res) => {
+  const settings: unknown = req.body;
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+    throw new HttpError(400, "Settings must be a JSON object");
+  }
+  if (!songs.saveSongSettings(req.params.id, settings)) throw new HttpError(404, "Song not found");
+
+  res.status(204).end();
 });
 
 songsRouter.post("/:id/retry", (req, res) => {
-  const song = getSong.get(req.params.id) as SongRow | undefined;
-  if (!song) {
-    res.status(404).json({ error: "Song not found" });
-    return;
-  }
-  if (song.status !== "failed") {
-    res.status(400).json({ error: "Only failed songs can be retried" });
-    return;
-  }
+  const song = requireSong(req);
+  if (song.status !== "failed") throw new HttpError(400, "Only failed songs can be retried");
 
   if (song.original_path && fs.existsSync(song.original_path)) {
-    fs.rmSync(path.join(STEMS_DIR, song.id), { recursive: true, force: true });
-    setStatus.run("processing", song.id);
+    removeStems(song.id);
+    songs.setSongStatus(song.id, "processing");
     enqueueSeparation(song.id, song.original_path);
     res.json({ id: song.id, status: "processing" });
     return;
@@ -127,93 +109,32 @@ songsRouter.post("/:id/retry", (req, res) => {
 
   const url = parseYoutubeUrl(song.source_url);
   if (url) {
-    setStatus.run("downloading", song.id);
+    songs.setSongStatus(song.id, "downloading");
     void startYoutubeImport(song.id, url);
     res.json({ id: song.id, status: "downloading" });
     return;
   }
 
-  res.status(400).json({ error: "The original file is gone. Delete this song and add it again." });
-});
-
-songsRouter.patch("/:id", express.json({ limit: "10kb" }), (req, res) => {
-  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
-  if (title.length === 0 || title.length > 200) {
-    res.status(400).json({ error: "Title must be 1-200 characters" });
-    return;
-  }
-
-  if (renameSong.run(title, req.params.id).changes === 0) {
-    res.status(404).json({ error: "Song not found" });
-    return;
-  }
-
-  res.json({ id: req.params.id, title });
-});
-
-songsRouter.put("/:id/settings", express.json({ limit: "20kb" }), (req, res) => {
-  const settings = req.body;
-  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
-    res.status(400).json({ error: "Settings must be a JSON object" });
-    return;
-  }
-
-  if (saveSettings.run(JSON.stringify(settings), req.params.id).changes === 0) {
-    res.status(404).json({ error: "Song not found" });
-    return;
-  }
-
-  res.status(204).end();
+  throw new HttpError(400, "The original file is gone. Delete this song and add it again.");
 });
 
 songsRouter.delete("/:id", (req, res) => {
-  const song = getSong.get(req.params.id) as SongRow | undefined;
+  const song = requireSong(req);
 
-  if (!song) {
-    res.status(404).json({ error: "Song not found" });
-    return;
-  }
-
-  deleteSong.run(song.id); // cascades to stems
+  songs.deleteSong(song.id);
   cancelSeparation(song.id);
-
-  if (song.original_path) fs.rm(song.original_path, { force: true }, () => {});
-  fs.rm(path.join(STEMS_DIR, song.id), { recursive: true, force: true }, () => {});
+  removeFile(song.original_path);
+  removeStems(song.id);
 
   res.status(204).end();
 });
 
 songsRouter.get("/:id/stems/:stemId", (req, res) => {
-  const stem = getStem.get(req.params.stemId, req.params.id) as Pick<StemRow, "file_path"> | undefined;
-
-  if (!stem) {
-    res.status(404).json({ error: "Stem not found" });
-    return;
-  }
+  const filePath = songs.getStemPath(req.params.id, req.params.stemId);
+  if (!filePath) throw new HttpError(404, "Stem not found");
 
   // Stem ids are random UUIDs and the audio never changes once written, so
   // the browser can keep it and skip re-downloading ~40MB per stem on
   // every reopen of the same song.
-  res.sendFile(stem.file_path, { maxAge: "1y", immutable: true });
+  res.sendFile(filePath, { maxAge: "1y", immutable: true });
 });
-
-function parseSettings(raw: string | null): unknown {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-type SongSummary = Pick<SongRow, "id" | "title" | "status" | "error_message" | "created_at">;
-
-function toSongDto(song: SongSummary) {
-  return {
-    id: song.id,
-    title: song.title,
-    status: song.status,
-    errorMessage: song.error_message,
-    createdAt: song.created_at,
-  };
-}

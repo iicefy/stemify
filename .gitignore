@@ -1,8 +1,9 @@
 node_modules/
 dist/
+*.tsbuildinfo
 data/uploads/*
 data/stems/*
-data/db.sqlite
+data/db.sqlite*
 data/bin/
 !data/uploads/.gitkeep
 !data/stems/.gitkeep
@@ -13,4 +14,5 @@ worker/__pycache__/
 .env
 apps/desktop/build/
 apps/desktop/dist/
+*.tsbuildinfo
 apps/desktop/release/

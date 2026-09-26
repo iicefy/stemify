@@ -6,7 +6,8 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { songsRouter } from "./routes/songs.js";
 import { WEB_DIST_DIR } from "./paths.js";
-import { db } from "./db.js";
+import { errorHandler, HttpError } from "./http.js";
+import { failInterruptedSongs } from "./songRepository.js";
 
 export function createApp() {
   const app = express();
@@ -14,6 +15,7 @@ export function createApp() {
 
   app.use(cors());
   app.use("/api/songs", songsRouter);
+  app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
 
   if (fs.existsSync(WEB_DIST_DIR)) {
     // Vite fingerprints everything under /assets, so it can be cached
@@ -37,22 +39,12 @@ export function createApp() {
     });
   }
 
+  app.use(errorHandler);
   return app;
 }
 
-/**
- * Songs still marked "processing" at startup belong to a run that was killed
- * mid-separation (app quit, crash) - nothing is working on them any more, so
- * flag them rather than leaving them spinning forever.
- */
-function failInterruptedJobs(): void {
-  db.prepare(
-    "UPDATE songs SET status = 'failed', error_message = 'Interrupted - the app was closed before this finished' WHERE status IN ('processing', 'downloading')"
-  ).run();
-}
-
 export function startServer(options: { port?: number; host?: string } = {}): Promise<{ server: Server; port: number }> {
-  failInterruptedJobs();
+  failInterruptedSongs();
   const app = createApp();
   return new Promise((resolve, reject) => {
     const server = options.host ? app.listen(options.port ?? 0, options.host) : app.listen(options.port ?? 0);

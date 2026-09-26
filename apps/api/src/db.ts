@@ -36,35 +36,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_songs_created_at ON songs(created_at DESC);
 `);
 
-// Added after the first release: remembers where a YouTube song came from so a
-// failed download can be retried.
-const songColumns = db.prepare("PRAGMA table_info(songs)").all() as { name: string }[];
-if (!songColumns.some((c) => c.name === "source_url")) {
-  db.exec("ALTER TABLE songs ADD COLUMN source_url TEXT");
+/** Columns added after the first release; existing libraries gain them on startup. */
+function addColumnIfMissing(table: string, column: string, type: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
+
+// Where a YouTube song came from, so a failed download can be retried.
+addColumnIfMissing("songs", "source_url", "TEXT");
 // Per-song player state (master volume, speed, loop, per-track mix), saved as
 // one JSON blob so it's opaque to the DB layer and free to grow later. Keyed
 // by the song, not the stems, so it survives Retry regenerating stem ids.
-if (!songColumns.some((c) => c.name === "settings")) {
-  db.exec("ALTER TABLE songs ADD COLUMN settings TEXT");
-}
-
-export type SongStatus = "downloading" | "processing" | "ready" | "failed";
-
-export interface SongRow {
-  id: string;
-  title: string;
-  original_path: string;
-  status: SongStatus;
-  error_message: string | null;
-  created_at: string;
-  source_url: string | null;
-  settings: string | null;
-}
-
-export interface StemRow {
-  id: string;
-  song_id: string;
-  name: string;
-  file_path: string;
-}
+addColumnIfMissing("songs", "settings", "TEXT");

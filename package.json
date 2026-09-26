@@ -2,19 +2,30 @@
   "name": "musicapp",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
+    "build": "npm run build --workspace=apps/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test",
     "desktop": "npm run build --workspace=apps/web && npm run start --workspace=apps/desktop",
     "desktop:pack": "npm run build --workspace=apps/web && npm run pack --workspace=apps/desktop",
     "desktop:dist": "npm run build --workspace=apps/web && npm run dist --workspace=apps/desktop",
     "desktop:dist:win": "npm run build --workspace=apps/web && npm run dist:win --workspace=apps/desktop"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^4.1.11"
   }
 }

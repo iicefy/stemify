@@ -32,7 +32,7 @@ async function download(): Promise<void> {
   fs.renameSync(tmp, BINARY);
 }
 
-export function run(args: string[]): Promise<RunResult> {
+export function runYtDlp(args: string[]): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     // Titles are often non-Latin; force UTF-8 so they survive the pipe.
     const child = spawn(BINARY, args, { env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" } });
@@ -47,12 +47,12 @@ export function run(args: string[]): Promise<RunResult> {
 
 /** Self-update in place (yt-dlp's own updater) and reset the freshness clock. */
 export async function updateYtDlp(): Promise<void> {
-  await run(["-U"]).catch(() => undefined);
+  await runYtDlp(["-U"]).catch(() => undefined);
   const now = new Date();
   fs.utimesSync(BINARY, now, now);
 }
 
-/** Makes sure a usable, reasonably fresh yt-dlp exists; returns nothing, use `run`. */
+/** Makes sure a usable, reasonably fresh yt-dlp exists; returns nothing, use `runYtDlp`. */
 export function ensureYtDlp(): Promise<void> {
   ensuring ??= (async () => {
     try {

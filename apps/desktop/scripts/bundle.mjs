@@ -10,6 +10,8 @@ await build({
   format: "esm",
   target: "node22",
   external: ["electron", "electron-updater", "better-sqlite3"],
+  // The Mac update's swap script is kept as a real .sh file and inlined here.
+  loader: { ".sh": "text" },
   // Bundled CommonJS dependencies (express, multer...) call require() for
   // Node built-ins, which doesn't exist in an ES module by default.
   banner: {

@@ -1,4 +1,4 @@
-.PHONY: install worker-setup run build app app-pack app-dmg app-win app-import release
+.PHONY: install worker-setup run build check app app-pack app-dmg app-win app-import release
 
 # Install JS deps and set up the Python separation worker (one-time).
 install: worker-setup
@@ -14,6 +14,10 @@ run:
 
 build:
 	npm run build
+
+# Typecheck every workspace, lint, and run the unit tests (also run by `make release`).
+check:
+	npm run check
 
 # --- macOS desktop app (Electron; bundles Python, PyTorch and the model) ---
 

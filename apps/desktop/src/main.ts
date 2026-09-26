@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { Server } from "node:http";
-import { createSplash, manualCheckForUpdates, runStartupUpdate, startBackgroundUpdates } from "./updater.js";
+import { createSplash, manualCheckForUpdates, runStartupUpdate, startBackgroundUpdates } from "./updater/index.js";
 
 let server: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
