@@ -16,12 +16,15 @@ const stop = (handler: () => void) => (e: MouseEvent) => {
 
 export const SongRow = memo(function SongRow({
   song,
+  progress,
   onOpen,
   onRename,
   onRetry,
   onDelete,
 }: {
   song: Song;
+  /** 0..1 while separating, once the worker has reported any. */
+  progress: number | undefined;
   onOpen: (song: Song) => void;
   onRename: (song: Song, title: string) => void;
   onRetry: (song: Song) => void;
@@ -91,6 +94,7 @@ export const SongRow = memo(function SongRow({
       <span className={`status-badge status-${song.status}`}>
         <span className={isBusy(song) ? "status-spinner" : "status-dot"} />
         {STATUS_LABEL[song.status]}
+        {song.status === "processing" && progress !== undefined && ` ${Math.round(progress * 100)}%`}
       </span>
 
       {song.status === "failed" && (

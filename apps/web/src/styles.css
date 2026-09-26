@@ -267,6 +267,7 @@ input {
   font-weight: 500;
   color: var(--text-dim);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums; /* the progress % doesn't jitter */
 }
 
 .status-dot {

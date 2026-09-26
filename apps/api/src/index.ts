@@ -1,6 +1,8 @@
-import { startServer } from "./server.js";
-
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-
-const { port } = await startServer({ port: PORT });
-console.log(`API listening on http://localhost:${port}`);
+/**
+ * The API's public surface, for embedding it in another process (the desktop
+ * app). Import it only after setting any STEMIFY_* environment variables -
+ * paths.ts reads them when the module loads.
+ * Run standalone with src/main.ts.
+ */
+export { startServer } from "./server.js";
+export { isSeparating, stopSeparation } from "./separation.js";

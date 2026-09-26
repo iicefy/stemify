@@ -1,6 +1,6 @@
-import type { ApiError, Song, SongDetail, SongSettings, Stem } from "@musicapp/shared";
+import type { ApiError, LibraryEvent, Song, SongDetail, SongSettings, Stem } from "@musicapp/shared";
 
-export type { LoopRegion, Song, SongDetail, SongSettings, SongStatus, Stem, TrackMix } from "@musicapp/shared";
+export type { LibraryEvent, LoopRegion, Song, SongDetail, SongSettings, SongStatus, Stem, TrackMix } from "@musicapp/shared";
 
 const BASE = "/api/songs";
 
@@ -67,4 +67,24 @@ export async function deleteSong(id: string): Promise<void> {
 
 export function stemUrl(songId: string, stemId: string): string {
   return `${BASE}/${songId}/stems/${stemId}`;
+}
+
+/**
+ * Live library updates (Server-Sent Events). The browser reconnects by itself
+ * if the connection drops. `onConnect` fires on every (re)connection: events
+ * sent before it - while disconnected, or before the stream first opened -
+ * are never delivered, so the caller should refetch then.
+ * Returns an unsubscribe function.
+ */
+export function subscribeToLibrary(onEvent: (event: LibraryEvent) => void, onConnect: () => void): () => void {
+  const source = new EventSource(`${BASE}/events`);
+  source.onopen = onConnect;
+  source.onmessage = (e: MessageEvent<string>) => {
+    try {
+      onEvent(JSON.parse(e.data) as LibraryEvent);
+    } catch {
+      // Ignore anything that isn't a LibraryEvent.
+    }
+  };
+  return () => source.close();
 }

@@ -25,7 +25,7 @@ function deleteMessage(song: Song): string {
 
 export function Library({ onSelectSong }: { onSelectSong: (id: string) => void }) {
   const toast = useToast();
-  const { songs, setSongs, loaded, refresh } = useSongs();
+  const { songs, setSongs, loaded, refresh, progress } = useSongs();
   const quietRefresh = useCallback(() => refresh(true), [refresh]);
   const { uploading, upload } = useUploads(quietRefresh);
   const dragActive = useWindowFileDrop(upload);
@@ -144,6 +144,7 @@ export function Library({ onSelectSong }: { onSelectSong: (id: string) => void }
               <SongRow
                 key={song.id}
                 song={song}
+                progress={progress.get(song.id)}
                 onOpen={openSong}
                 onRename={handleRename}
                 onRetry={handleRetry}

@@ -41,10 +41,11 @@ function configureEnvironment(): void {
 }
 
 async function startBackend(): Promise<string> {
-  const api = await import("../../api/src/server.js");
-  const separation = await import("../../api/src/separation.js");
-  stopSeparation = separation.stopSeparation;
-  isSeparating = separation.isSeparating;
+  // Imported only now, after configureEnvironment(): the API reads its
+  // paths from the environment when it loads.
+  const api = await import("@musicapp/api");
+  stopSeparation = api.stopSeparation;
+  isSeparating = api.isSeparating;
   // Loopback only, on a free port: the app is a private, single-user tool.
   const started = await api.startServer({ port: 0, host: "127.0.0.1" });
   server = started.server;
@@ -154,5 +155,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     stopSeparation();
     server?.close();
+    // Live-update streams stay open indefinitely; don't let them hold the server.
+    server?.closeAllConnections();
   });
 }

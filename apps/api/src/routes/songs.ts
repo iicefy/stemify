@@ -3,7 +3,15 @@ import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { AUDIO_EXTENSIONS, MAX_TITLE_LENGTH, isAudioFileName, type SongDetail, type SongSettings } from "@musicapp/shared";
+import {
+  AUDIO_EXTENSIONS,
+  MAX_TITLE_LENGTH,
+  isAudioFileName,
+  type LibraryEvent,
+  type SongDetail,
+  type SongSettings,
+} from "@musicapp/shared";
+import { currentProgress, subscribe } from "../events.js";
 import { UPLOADS_DIR } from "../paths.js";
 import { HttpError } from "../http.js";
 import { cancelSeparation, enqueueSeparation } from "../separation.js";
@@ -25,6 +33,7 @@ const upload = multer({
 });
 
 const smallJson = express.json({ limit: "10kb" });
+const SSE_KEEPALIVE_MS = 25_000;
 
 function requireSong(req: Request<{ id: string }>): songs.SongRow {
   const song = songs.getSong(req.params.id);
@@ -36,6 +45,28 @@ export const songsRouter = Router();
 
 songsRouter.get("/", (_req, res) => {
   res.json(songs.listSongs());
+});
+
+// Server-Sent Events: pushes LibraryEvents so the library never has to poll.
+// Registered before "/:id" so "events" isn't taken for a song id.
+songsRouter.get("/events", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  const send = (event: LibraryEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+  res.write("retry: 2000\n\n"); // reconnect quickly if the connection drops
+  currentProgress().forEach(send);
+  const unsubscribe = subscribe(send);
+  // Comments keep idle connections from being timed out along the way.
+  const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), SSE_KEEPALIVE_MS);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    unsubscribe();
+  });
 });
 
 songsRouter.post("/", upload.single("file"), (req, res) => {

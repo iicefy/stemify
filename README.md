@@ -37,16 +37,20 @@ Vitest unit tests). `make release` runs it too and stops if anything fails.
 ## Project layout
 
 ```
-packages/shared/     API <-> web contract: JSON types, upload/title limits
+packages/shared/     API <-> web contract: JSON types, live events, upload/title limits
 apps/api/src/
+  index.ts           public entry (the desktop app imports @musicapp/api); main.ts runs it standalone
   server.ts          Express app + JSON error handling (http.ts)
-  routes/songs.ts    HTTP endpoints only - no SQL here
-  songRepository.ts  every database query
+  routes/songs.ts    HTTP endpoints only - no SQL here; GET /events is the live stream
+  songRepository.ts  every database query; writes notify clients (events.ts)
   db.ts              connection, schema, column migrations
   separation.ts      the one-at-a-time Demucs job queue
+  workerProtocol.ts  the documented contract with worker/separate.py
   youtube*.ts, ytdlp.ts  YouTube import
+  server.test.ts     HTTP tests: real server + DB in a temp folder, fake worker
 apps/web/src/
-  api.ts             typed client for the API
+  api.ts             typed client for the API (incl. the live event stream)
+  router.ts          hash routes: #/ library, #/song/<id> player
   audio/             playback engine + AudioWorklet mixer (no React)
   features/library/  song list page: components + hooks
   features/player/   DAW player: components, hooks/, pure logic (zoom, settings)
@@ -57,6 +61,10 @@ apps/desktop/src/
   updater/           in-app updates (mac.ts, windows.ts, apply-update.sh)
 worker/separate.py   Demucs separation, run by the API as a subprocess
 ```
+
+The library updates live: the API pushes Server-Sent Events whenever a song
+is added, changes status or is removed, plus separation progress, which the
+worker reports as `PROGRESS <0..1>` lines.
 
 Pure logic lives in plain `.ts` modules next to the code that uses it, with a
 `*.test.ts` beside it; components and hooks stay thin wrappers around it.

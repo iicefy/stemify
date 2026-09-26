@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { Song, SongStatus, Stem } from "@musicapp/shared";
 import { db } from "./db.js";
+import { notifySongsChanged } from "./events.js";
 
 /**
  * Every query the app runs, in one place. Statements are prepared once at
  * load - better-sqlite3 statements are meant to be reused, and re-preparing
  * on every call re-parses the SQL each time.
+ *
+ * Every write that changes what the song list shows calls
+ * notifySongsChanged(), so connected clients refresh - doing it here means no
+ * caller can forget to.
  */
 
 export interface SongRow {
@@ -62,6 +67,7 @@ export function createSong(fields: {
 }): Song {
   const song = { id: randomUUID(), createdAt: new Date().toISOString(), ...fields };
   statements.insert.run({ originalPath: "", sourceUrl: null, ...song });
+  notifySongsChanged();
   return { id: song.id, title: song.title, status: song.status, errorMessage: null, createdAt: song.createdAt };
 }
 
@@ -80,11 +86,14 @@ export function songExists(id: string): boolean {
 
 export function deleteSong(id: string): void {
   statements.remove.run(id);
+  notifySongsChanged();
 }
 
 /** Returns false if there's no such song. */
 export function renameSong(id: string, title: string): boolean {
-  return statements.rename.run(title, id).changes > 0;
+  const changed = statements.rename.run(title, id).changes > 0;
+  if (changed) notifySongsChanged();
+  return changed;
 }
 
 /** Returns false if there's no such song. */
@@ -105,21 +114,29 @@ export function parseSongSettings(raw: string | null): unknown {
 /** Moves a song back into the pipeline, clearing any previous error. */
 export function setSongStatus(id: string, status: SongStatus): void {
   statements.setStatus.run(status, id);
+  notifySongsChanged();
 }
 
 export function markSongFailed(id: string, message: string): void {
   statements.markFailed.run(message, id);
+  notifySongsChanged();
 }
 
 export function markSongDownloaded(id: string, title: string, filePath: string): void {
   statements.markDownloaded.run(title, filePath, id);
+  notifySongsChanged();
 }
 
-/** Records the separated stems and marks the song ready, atomically. */
-export const completeSeparation = db.transaction((songId: string, stems: { name: string; filePath: string }[]) => {
+const insertStemsAndMarkReady = db.transaction((songId: string, stems: { name: string; filePath: string }[]) => {
   for (const stem of stems) statements.insertStem.run(randomUUID(), songId, stem.name, stem.filePath);
   statements.markReady.run(songId);
 });
+
+/** Records the separated stems and marks the song ready, atomically. */
+export function completeSeparation(songId: string, stems: { name: string; filePath: string }[]): void {
+  insertStemsAndMarkReady(songId, stems);
+  notifySongsChanged();
+}
 
 /**
  * Songs still mid-pipeline at startup belong to a run that was killed (app

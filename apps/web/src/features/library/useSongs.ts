@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
-import { listSongs, type Song } from "../../api";
+import { listSongs, subscribeToLibrary, type Song } from "../../api";
 import { useToast } from "../../components/ToastProvider";
 import { errorText } from "../../lib/errors";
-import { isBusy } from "./songStatus";
 
-const POLL_INTERVAL_MS = 3000;
-
-/** The song list: loaded on mount, then re-polled while anything is still in progress. */
+/**
+ * The song list, kept current by the API's live events (no polling), plus
+ * each in-progress song's separation progress (0..1) by song id.
+ */
 export function useSongs() {
   const toast = useToast();
   const [songs, setSongs] = useState<Song[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [progress, setProgress] = useState<ReadonlyMap<string, number>>(new Map());
 
-  /** `quiet` skips the error toast - a failing poll would otherwise pop one every few seconds. */
+  /** `quiet` skips the error toast, for background refreshes. */
   const refresh = useCallback(
     async (quiet = false) => {
       try {
-        setSongs(await listSongs());
+        const list = await listSongs();
+        setSongs(list);
         setLoaded(true);
+        // Forget progress for songs that are no longer separating.
+        setProgress((prev) => {
+          const processing = new Set(list.filter((s) => s.status === "processing").map((s) => s.id));
+          const next = new Map([...prev].filter(([id]) => processing.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
       } catch (err) {
         if (!quiet) toast.show(errorText(err), { kind: "error" });
       }
@@ -27,14 +35,14 @@ export function useSongs() {
 
   useEffect(() => {
     void refresh();
+    return subscribeToLibrary(
+      (event) => {
+        if (event.type === "changed") void refresh(true);
+        else setProgress((prev) => new Map(prev).set(event.songId, event.progress));
+      },
+      () => void refresh(true)
+    );
   }, [refresh]);
 
-  const anyBusy = songs.some(isBusy);
-  useEffect(() => {
-    if (!anyBusy) return;
-    const interval = window.setInterval(() => void refresh(true), POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, [anyBusy, refresh]);
-
-  return { songs, setSongs, loaded, refresh };
+  return { songs, setSongs, loaded, refresh, progress };
 }

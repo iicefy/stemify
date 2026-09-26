@@ -5,6 +5,10 @@ result to <stems_dir>/<song_id>/, plus a manifest.json the API reads to
 find out what got produced.
 
 Usage: separate.py <input_path> <song_id> <stems_dir>
+
+The API depends on exactly what this prints and writes: the full contract
+(arguments, PROGRESS lines, manifest.json shape) is documented in
+apps/api/src/workerProtocol.ts - keep the two in sync.
 """
 
 import json
@@ -20,6 +24,29 @@ def pick_device() -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+class ProgressReporter:
+    """Prints `PROGRESS <0..1>` lines on stdout for the API, from Demucs's
+    per-chunk callback. Only whole-percent changes are printed, and never
+    backwards (chunks can finish out of order)."""
+
+    def __init__(self) -> None:
+        self.last_percent = -1
+
+    def __call__(self, info: dict) -> None:
+        if info.get("state") != "end":
+            return
+        length = info.get("audio_length") or 0
+        models = info.get("models") or 1
+        if not length:
+            return
+        within_model = min(1.0, info.get("segment_offset", 0) / length)
+        fraction = (info.get("model_idx_in_bag", 0) + within_model) / models
+        percent = int(fraction * 100)
+        if percent > self.last_percent:
+            self.last_percent = percent
+            print(f"PROGRESS {percent / 100:.2f}", flush=True)
 
 
 def decode_to_wav(input_path: str, wav_path: Path) -> None:
@@ -87,7 +114,7 @@ def main() -> None:
         device = pick_device()
         print(f"[separate] device={device} input={input_path}", file=sys.stderr)
 
-        separator = Separator(model="htdemucs_6s", device=device, progress=True)
+        separator = Separator(model="htdemucs_6s", device=device, progress=True, callback=ProgressReporter())
         _original, stems = separate_with_fallback(separator, input_path, out_dir)
 
         manifest = {"status": "done", "stems": {}}
@@ -97,6 +124,7 @@ def main() -> None:
             manifest["stems"][name] = stem_path.name
 
         manifest_path.write_text(json.dumps(manifest))
+        print("PROGRESS 1", flush=True)
         print(f"[separate] done: {list(manifest['stems'])}", file=sys.stderr)
 
     except Exception as exc:

@@ -1,20 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
+import { clearProgress, reportProgress } from "./events.js";
 import { STEMS_DIR, WORKER_PYTHON, WORKER_SCRIPT } from "./paths.js";
 import { completeSeparation, markSongFailed, songExists } from "./songRepository.js";
 import { removeStems, stemsDirFor } from "./storage.js";
+import { parseManifest, parseProgressLine, workerArgs, type Manifest } from "./workerProtocol.js";
 
 interface Job {
   songId: string;
   inputPath: string;
-}
-
-/** What worker/separate.py writes to <stems dir>/<song id>/manifest.json. */
-interface Manifest {
-  status: "done" | "failed";
-  stems?: Record<string, string>; // stem name -> file name
-  error?: string;
 }
 
 const queue: Job[] = [];
@@ -62,14 +58,19 @@ async function processQueue(): Promise<void> {
 
 function runSeparation({ songId, inputPath }: Job): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn(WORKER_PYTHON, [WORKER_SCRIPT, inputPath, songId, STEMS_DIR], {
+    const child = spawn(WORKER_PYTHON, workerArgs(WORKER_SCRIPT, inputPath, songId, STEMS_DIR), {
       // Keep the interpreter from writing .pyc files or reading user
       // site-packages - matters for a read-only bundled app.
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONNOUSERSITE: "1" },
     });
     current = { songId, child };
 
-    child.stdout.on("data", (chunk) => process.stdout.write(`[worker ${songId}] ${chunk}`));
+    reportProgress(songId, 0);
+    readline.createInterface({ input: child.stdout }).on("line", (line) => {
+      const progress = parseProgressLine(line);
+      if (progress === null) process.stdout.write(`[worker ${songId}] ${line}\n`);
+      else reportProgress(songId, progress);
+    });
     child.stderr.on("data", (chunk) => process.stderr.write(`[worker ${songId}] ${chunk}`));
 
     let failedToStart = false;
@@ -77,12 +78,14 @@ function runSeparation({ songId, inputPath }: Job): Promise<void> {
       // e.g. worker/.venv doesn't exist yet - surface a clear message
       // instead of leaving the song stuck at "processing" forever.
       failedToStart = true;
+      clearProgress(songId);
       markSongFailed(songId, `Failed to start separation worker: ${err.message}`);
       resolve();
     });
 
     child.on("close", () => {
       current = null;
+      clearProgress(songId);
       // "close" can follow "error"; don't bury that clearer message under
       // a generic "no manifest" one.
       if (!failedToStart) finalize(songId);
@@ -93,7 +96,7 @@ function runSeparation({ songId, inputPath }: Job): Promise<void> {
 
 function readManifest(dir: string): Manifest | null {
   try {
-    return JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf-8")) as Manifest;
+    return parseManifest(JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf-8")));
   } catch {
     return null; // missing/unreadable counts as a failure
   }
@@ -108,8 +111,12 @@ function finalize(songId: string): void {
 
   const dir = stemsDirFor(songId);
   const manifest = readManifest(dir);
-  if (manifest?.status !== "done" || !manifest.stems) {
-    markSongFailed(songId, manifest?.error ?? "Separation failed (no manifest produced)");
+  if (!manifest) {
+    markSongFailed(songId, "Separation failed (no valid manifest produced)");
+    return;
+  }
+  if (manifest.status === "failed") {
+    markSongFailed(songId, manifest.error);
     return;
   }
 
