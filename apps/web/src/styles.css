@@ -888,7 +888,11 @@ input {
   font-family: ui-monospace, "SF Mono", monospace;
   font-size: 0.8rem;
   color: var(--text-dim);
-  min-width: 2ch;
+  /* Fixed (not min-) width: volume goes up to 150, and a min-width shrinks
+     with shorter values (e.g. 100 -> 99), which shifts every control to its
+     left since this bar is right-aligned. */
+  width: 3ch;
+  flex-shrink: 0;
   text-align: right;
 }
 
@@ -925,7 +929,11 @@ input {
 }
 
 .zoom-label {
-  min-width: 2.6ch;
+  /* Fixed (not min-) width, sized for the longest label ("1.5x"): a
+     shorter one (e.g. "8x") would otherwise shrink the control and shift
+     everything to its left, since this bar is right-aligned. */
+  width: 4ch;
+  flex-shrink: 0;
   text-align: center;
   font-family: ui-monospace, "SF Mono", monospace;
   font-size: 0.72rem;
