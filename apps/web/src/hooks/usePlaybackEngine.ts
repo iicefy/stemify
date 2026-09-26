@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlaybackEngine } from "../audio/PlaybackEngine";
 import type { PeakPyramid } from "../audio/waveform";
-import { stemUrl, type Stem } from "../api";
+import { saveSongSettings, stemUrl, type SongSettings, type Stem } from "../api";
 
+// How long to wait after the last change before saving, so dragging a slider
+// doesn't fire a request per pixel.
+const SAVE_DEBOUNCE_MS = 500;
 
 export interface TrackState {
   muted: boolean;
@@ -18,7 +21,10 @@ export interface LoopRegion {
 export type TimeListener = (time: number) => void;
 export type SubscribeTime = (listener: TimeListener) => () => void;
 
-export function usePlaybackEngine(songId: string, stems: Stem[]) {
+const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+export function usePlaybackEngine(songId: string, stems: Stem[], settings: SongSettings | null) {
   const engineRef = useRef<PlaybackEngine | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -32,6 +38,26 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
   const [loopEnabled, setLoopEnabled] = useState(false);
 
   const stemsKey = stems.map((s) => s.id).join(",");
+
+  // Mirrors, read inside effects below without needing to be in their
+  // dependency arrays: the load effect is keyed only on [songId, stemsKey]
+  // (settingsRef/stemsRef), and the save-on-unmount effect reads the latest
+  // values at the moment it actually fires rather than a stale closure from
+  // whenever the effect last ran (the other *Ref mirrors).
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const stemsRef = useRef(stems);
+  stemsRef.current = stems;
+  const trackStatesRef = useRef(trackStates);
+  trackStatesRef.current = trackStates;
+  const masterVolumeRef = useRef(masterVolume);
+  masterVolumeRef.current = masterVolume;
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
+  const loopRegionRef = useRef(loopRegion);
+  loopRegionRef.current = loopRegion;
+  const loopEnabledRef = useRef(loopEnabled);
+  loopEnabledRef.current = loopEnabled;
 
   // The playhead position changes every animation frame, so it deliberately
   // lives outside React state: components that show it (playhead, time
@@ -84,11 +110,34 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
         if (cancelled) return;
         setPeaksByStem(peaks);
 
+        // Restore what was saved for this song, if anything - keyed by stem
+        // *name*, since a retried song's stem ids are freshly generated.
+        const saved = settingsRef.current;
         const initialStates = new Map<string, TrackState>();
-        for (const s of stems) initialStates.set(s.id, { muted: false, solo: false, volume: 1 });
+        for (const s of stems) {
+          const track = saved?.tracks?.[s.name];
+          initialStates.set(
+            s.id,
+            track
+              ? { muted: !!track.muted, solo: !!track.solo, volume: clamp(isFiniteNumber(track.volume) ? track.volume : 1, 0, 1) }
+              : { muted: false, solo: false, volume: 1 }
+          );
+        }
         setTrackStates(initialStates);
+        setMasterVolumeState(isFiniteNumber(saved?.masterVolume) ? clamp(saved.masterVolume, 0, 1.5) : 1);
+        setPlaybackRateState(isFiniteNumber(saved?.playbackRate) ? clamp(saved.playbackRate, 0.5, 1.5) : 1);
+
+        const region = saved?.loopRegion;
+        if (region && isFiniteNumber(region.start) && isFiniteNumber(region.end) && region.start >= 0 && region.end > region.start && region.end <= duration) {
+          setLoopRegionState(region);
+          setLoopEnabled(!!saved.loopEnabled);
+        }
 
         setDuration(duration);
+        // The state set above will settle just before `ready` flips true;
+        // the save-on-change effect below would otherwise see that as a
+        // "change" and immediately re-save what was just loaded.
+        justLoadedRef.current = true;
         setReady(true);
       })
       .catch((err) => {
@@ -114,9 +163,9 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     }
   }, [trackStates]);
 
-  // Master volume and playback rate are global (persist across song
-  // changes), so they're reapplied whenever a new engine finishes loading,
-  // not just when their own control moves.
+  // Also reapplied whenever a new engine finishes loading (not just when
+  // their own control moves), since a freshly loaded song sets these from
+  // its saved settings.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !ready) return;
@@ -136,6 +185,58 @@ export function usePlaybackEngine(songId: string, stems: Stem[]) {
     if (!engine || !ready) return;
     engine.setLoop(loopEnabled && loopRegion ? loopRegion : null);
   }, [loopEnabled, loopRegion, ready]);
+
+  // Set right before setReady(true) in the load effect above, so the save
+  // effect below can tell "just restored from settings" apart from "the user
+  // changed something" - both look like a state change from here.
+  const justLoadedRef = useRef(false);
+  const saveTimeoutRef = useRef<number | undefined>(undefined);
+
+  const snapshotSettings = useCallback((): SongSettings => {
+    const tracks: SongSettings["tracks"] = {};
+    for (const stem of stemsRef.current) {
+      const state = trackStatesRef.current.get(stem.id);
+      if (state) tracks[stem.name] = { muted: state.muted, solo: state.solo, volume: state.volume };
+    }
+    return {
+      masterVolume: masterVolumeRef.current,
+      playbackRate: playbackRateRef.current,
+      loopEnabled: loopEnabledRef.current,
+      loopRegion: loopRegionRef.current,
+      tracks,
+    };
+  }, []);
+
+  // Save the mix, speed and loop for this song a moment after they settle -
+  // "moment after" so dragging a volume slider doesn't fire a request per
+  // pixel; on the next real change the pending save is replaced, not stacked.
+  useEffect(() => {
+    if (!ready) return;
+    if (justLoadedRef.current) {
+      justLoadedRef.current = false;
+      return;
+    }
+    window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(() => {
+      saveTimeoutRef.current = undefined;
+      void saveSongSettings(songId, snapshotSettings()).catch(() => {
+        // Best-effort: losing one save just means the next change retries it,
+        // and worst case this song reopens with its previous settings.
+      });
+    }, SAVE_DEBOUNCE_MS);
+  }, [trackStates, masterVolume, playbackRate, loopRegion, loopEnabled, ready, songId, snapshotSettings]);
+
+  // Save immediately when leaving this song, rather than leaving a pending
+  // change to a plain timer (which - unlike this cleanup - would still fire
+  // even after leaving, just later, since it isn't tied to the component).
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current === undefined) return;
+      window.clearTimeout(saveTimeoutRef.current);
+      void saveSongSettings(songId, snapshotSettings()).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songId]);
 
   // Poll the audio clock once per frame while playing and push it to the
   // time subscribers (no React state involved).

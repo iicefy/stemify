@@ -46,6 +46,7 @@ const deleteSong = db.prepare("DELETE FROM songs WHERE id = ?");
 const renameSong = db.prepare("UPDATE songs SET title = ? WHERE id = ?");
 const setStatus = db.prepare("UPDATE songs SET status = ?, error_message = NULL WHERE id = ?");
 const getStem = db.prepare("SELECT file_path FROM stems WHERE id = ? AND song_id = ?");
+const saveSettings = db.prepare("UPDATE songs SET settings = ? WHERE id = ?");
 
 songsRouter.post("/", upload.single("file"), (req, res) => {
   if (!req.file) {
@@ -98,6 +99,10 @@ songsRouter.get("/:id", (req, res) => {
   res.json({
     ...toSongDto(song),
     stems: listStems.all(song.id),
+    // Opaque to this layer - the player reads/writes its own shape (mix,
+    // speed, loop). Malformed JSON from a hand-edited DB shouldn't break
+    // loading the song, just come back as "no saved settings".
+    settings: parseSettings(song.settings),
   });
 });
 
@@ -146,6 +151,21 @@ songsRouter.patch("/:id", express.json({ limit: "10kb" }), (req, res) => {
   res.json({ id: req.params.id, title });
 });
 
+songsRouter.put("/:id/settings", express.json({ limit: "20kb" }), (req, res) => {
+  const settings = req.body;
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+    res.status(400).json({ error: "Settings must be a JSON object" });
+    return;
+  }
+
+  if (saveSettings.run(JSON.stringify(settings), req.params.id).changes === 0) {
+    res.status(404).json({ error: "Song not found" });
+    return;
+  }
+
+  res.status(204).end();
+});
+
 songsRouter.delete("/:id", (req, res) => {
   const song = getSong.get(req.params.id) as SongRow | undefined;
 
@@ -176,6 +196,15 @@ songsRouter.get("/:id/stems/:stemId", (req, res) => {
   // every reopen of the same song.
   res.sendFile(stem.file_path, { maxAge: "1y", immutable: true });
 });
+
+function parseSettings(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 type SongSummary = Pick<SongRow, "id" | "title" | "status" | "error_message" | "created_at">;
 

@@ -11,6 +11,21 @@ import { MasterVolume } from "./MasterVolume";
 import { SpeedControl } from "./SpeedControl";
 import { LoopToggle } from "./LoopToggle";
 import { TimelineOverlay, type TimelineOverlayHandle } from "./TimelineOverlay";
+import {
+  LoopToggleSkeleton,
+  MasterVolumeSkeleton,
+  RulerSkeleton,
+  SpeedControlSkeleton,
+  TitleSkeleton,
+  TrackRowSkeleton,
+  TransportSkeleton,
+  ZoomControlSkeleton,
+} from "./PlayerSkeleton";
+
+// A song is always separated into exactly these 6 stems (the fixed
+// htdemucs_6s model), so this is what the skeleton shows before the song's
+// own stem list has loaded - not a guess, an invariant of the app.
+const SKELETON_STEM_COUNT = 6;
 
 // Trackpad two-finger-scroll pan feels frantic at a literal 1:1 pixel
 // mapping - this tones it down to a more deliberate speed.
@@ -44,7 +59,7 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
   }, [songId]);
 
   const stems = song?.stems ?? [];
-  const engine = usePlaybackEngine(songId, stems);
+  const engine = usePlaybackEngine(songId, stems, song?.settings ?? null);
 
   // Fresh zoom/pan for every song rather than carrying over from whatever
   // was open before.
@@ -320,99 +335,125 @@ export function Player({ songId, onBack }: { songId: string; onBack: () => void 
           <button className="daw-back" onClick={onBack}>
             &larr; Library
           </button>
-          <h2 className="daw-song-title">{song?.title ?? ""}</h2>
+          {song ? <h2 className="daw-song-title">{song.title}</h2> : <TitleSkeleton />}
         </div>
 
         <div className="daw-topbar-zone daw-topbar-center">
-          <Transport
-            isPlaying={engine.isPlaying}
-            duration={engine.duration}
-            subscribeTime={engine.subscribeTime}
-            onTogglePlay={engine.togglePlay}
-            onStop={engine.stop}
-          />
+          {engine.ready ? (
+            <Transport
+              isPlaying={engine.isPlaying}
+              duration={engine.duration}
+              subscribeTime={engine.subscribeTime}
+              onTogglePlay={engine.togglePlay}
+              onStop={engine.stop}
+            />
+          ) : (
+            <TransportSkeleton />
+          )}
         </div>
 
         <div className="daw-topbar-zone daw-topbar-right">
-          <SpeedControl rate={engine.playbackRate} onChange={engine.setPlaybackRate} />
-          <ZoomControl
-            zoomIndex={zoomIndex}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-          />
-          <LoopToggle
-            enabled={engine.loopEnabled}
-            hasRegion={!!engine.loopRegion}
-            onToggle={engine.toggleLoopEnabled}
-          />
-          <span className="topbar-divider" />
-          <MasterVolume volume={engine.masterVolume} onChange={engine.setMasterVolume} />
+          {engine.ready ? (
+            <>
+              <SpeedControl rate={engine.playbackRate} onChange={engine.setPlaybackRate} />
+              <ZoomControl zoomIndex={zoomIndex} onZoomIn={zoomIn} onZoomOut={zoomOut} />
+              <LoopToggle
+                enabled={engine.loopEnabled}
+                hasRegion={!!engine.loopRegion}
+                onToggle={engine.toggleLoopEnabled}
+              />
+              <span className="topbar-divider" />
+              <MasterVolume volume={engine.masterVolume} onChange={engine.setMasterVolume} />
+            </>
+          ) : (
+            <>
+              <SpeedControlSkeleton />
+              <ZoomControlSkeleton />
+              <LoopToggleSkeleton />
+              <span className="topbar-divider" />
+              <MasterVolumeSkeleton />
+            </>
+          )}
         </div>
       </div>
 
       {fetchError && <p className="error daw-message">{fetchError}</p>}
       {engine.loadError && <p className="error daw-message">{engine.loadError}</p>}
-      {!fetchError && !song && <p className="daw-message">Loading…</p>}
-      {song && !engine.ready && !engine.loadError && <p className="daw-message">Loading stems…</p>}
 
-      {engine.ready && (
+      {!fetchError && !engine.loadError && (
         <div className="daw-grid">
-          <div className="daw-main" ref={dawMainRef}>
-            <TimelineRuler
-              viewStart={viewStart}
-              viewDuration={viewDuration}
-              loopRegion={engine.loopRegion}
-              onSetLoopRegion={engine.setLoopRegion}
-              onClearLoop={engine.clearLoop}
-              onSeek={engine.seek}
-            />
+          {engine.ready ? (
+            <div className="daw-main" ref={dawMainRef}>
+              <TimelineRuler
+                viewStart={viewStart}
+                viewDuration={viewDuration}
+                loopRegion={engine.loopRegion}
+                onSetLoopRegion={engine.setLoopRegion}
+                onClearLoop={engine.clearLoop}
+                onSeek={engine.seek}
+              />
 
-            <ZoomScrollbar
-              duration={engine.duration}
-              viewStart={viewStart}
-              viewDuration={viewDuration}
-              onPan={handlePan}
-            />
+              <ZoomScrollbar
+                duration={engine.duration}
+                viewStart={viewStart}
+                viewDuration={viewDuration}
+                onPan={handlePan}
+              />
 
-            <div className="daw-tracks">
-              {stems.map((stem, i) => {
-                const state = engine.trackStates.get(stem.id);
-                if (!state) return null;
-                return (
-                  <TrackLane
-                    key={stem.id}
-                    id={stem.id}
-                    name={stem.name}
-                    color={trackColor(stem.name)}
-                    peaks={engine.peaksByStem.get(stem.id)}
-                    duration={engine.duration}
-                    viewStart={viewStart}
-                    viewDuration={viewDuration}
-                    striped={i % 2 === 1}
-                    muted={state.muted}
-                    solo={state.solo}
-                    volume={state.volume}
-                    dimmed={anySoloed && !state.solo}
-                    onToggleMute={engine.toggleMute}
-                    onToggleSolo={engine.toggleSolo}
-                    onVolumeChange={engine.setVolume}
-                    onSeek={engine.seek}
-                    onHoverMove={handleHover}
-                    onSetLoopRegion={engine.setLoopRegion}
-                  />
-                );
-              })}
+              <div className="daw-tracks">
+                {stems.map((stem, i) => {
+                  const state = engine.trackStates.get(stem.id);
+                  if (!state) return null;
+                  return (
+                    <TrackLane
+                      key={stem.id}
+                      id={stem.id}
+                      name={stem.name}
+                      color={trackColor(stem.name)}
+                      peaks={engine.peaksByStem.get(stem.id)}
+                      duration={engine.duration}
+                      viewStart={viewStart}
+                      viewDuration={viewDuration}
+                      striped={i % 2 === 1}
+                      muted={state.muted}
+                      solo={state.solo}
+                      volume={state.volume}
+                      dimmed={anySoloed && !state.solo}
+                      onToggleMute={engine.toggleMute}
+                      onToggleSolo={engine.toggleSolo}
+                      onVolumeChange={engine.setVolume}
+                      onSeek={engine.seek}
+                      onHoverMove={handleHover}
+                      onSetLoopRegion={engine.setLoopRegion}
+                    />
+                  );
+                })}
+              </div>
+
+              <TimelineOverlay
+                ref={overlayRef}
+                viewStart={viewStart}
+                viewDuration={viewDuration}
+                loopRegion={engine.loopRegion}
+                loopEnabled={engine.loopEnabled}
+                subscribeTime={engine.subscribeTime}
+              />
             </div>
-
-            <TimelineOverlay
-              ref={overlayRef}
-              viewStart={viewStart}
-              viewDuration={viewDuration}
-              loopRegion={engine.loopRegion}
-              loopEnabled={engine.loopEnabled}
-              subscribeTime={engine.subscribeTime}
-            />
-          </div>
+          ) : (
+            <div className="daw-main">
+              <RulerSkeleton />
+              <div className="daw-tracks">
+                {/* Real stem names/colors as soon as they're known (usually
+                    well before the engine itself is ready) - only the
+                    waveform and mix controls need to keep shimmering. */}
+                {song
+                  ? stems.map((stem, i) => (
+                      <TrackRowSkeleton key={stem.id} name={stem.name} color={trackColor(stem.name)} striped={i % 2 === 1} />
+                    ))
+                  : Array.from({ length: SKELETON_STEM_COUNT }, (_, i) => <TrackRowSkeleton key={i} striped={i % 2 === 1} />)}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

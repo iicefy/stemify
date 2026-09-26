@@ -13,8 +13,22 @@ export interface Stem {
   name: string;
 }
 
+/**
+ * Everything about how you last set up a song's player, saved so it's back
+ * the next time you open it. Keyed by stem *name* (not id): a retried song
+ * gets new stem ids, but the names ("drums", "bass"...) stay the same.
+ */
+export interface SongSettings {
+  masterVolume: number;
+  playbackRate: number;
+  loopEnabled: boolean;
+  loopRegion: { start: number; end: number } | null;
+  tracks: Record<string, { muted: boolean; solo: boolean; volume: number }>;
+}
+
 export interface SongDetail extends Song {
   stems: Stem[];
+  settings: SongSettings | null;
 }
 
 const BASE = "/api/songs";
@@ -62,6 +76,15 @@ export async function renameSong(id: string, title: string): Promise<void> {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error ?? "Rename failed");
   }
+}
+
+export async function saveSongSettings(id: string, settings: SongSettings): Promise<void> {
+  const res = await fetch(`${BASE}/${id}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error("Could not save your settings for this song");
 }
 
 export async function retrySong(id: string): Promise<void> {

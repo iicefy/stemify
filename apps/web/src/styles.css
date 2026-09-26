@@ -1226,6 +1226,88 @@ select:focus-visible {
   pointer-events: none;
 }
 
+/* --- Player loading skeleton (topbar tools + track rows) --- */
+
+.daw-title-skeleton {
+  width: 160px;
+}
+
+.transport-btn-skeleton {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.transport-time-skeleton {
+  width: 92px;
+  flex-shrink: 0;
+}
+
+/* Sized to roughly match each real topbar control so nothing jumps when it
+   swaps in once the song is ready. flex-shrink: 0 matches those real
+   controls (each sets it too) - without it these shrink to fit the topbar
+   instead of overflowing into its horizontal scroll like the real ones do,
+   ending up noticeably smaller than the controls they're standing in for. */
+.topbar-tool-skeleton {
+  display: inline-block;
+  height: 30px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.speed-control-skeleton {
+  width: 140px;
+}
+
+.zoom-control-skeleton {
+  width: 84px;
+}
+
+.loop-toggle-skeleton {
+  width: 74px;
+}
+
+.master-volume-skeleton {
+  width: 150px;
+}
+
+.ruler-skeleton {
+  width: 100%;
+  height: 14px;
+}
+
+.track-icon-skeleton {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.track-name-skeleton {
+  width: 60%;
+}
+
+.track-btn-skeleton {
+  width: 24px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+.track-volume-skeleton {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.track-waveform-skeleton {
+  /* `.track-waveform` is already `position: relative`, so this centers
+     itself vertically (leaving the middle 60% of the row's height) without
+     needing a flex context. */
+  position: absolute;
+  inset: 20% 0.75rem;
+}
+
 /* --- Modal --- */
 
 .modal-backdrop {
